@@ -4,7 +4,7 @@ name = "arca-service-client"
 # recién cuando el contrato público se estabilice con uso real, no por haber escrito
 # código. NO se bumpea en cada commit — solo cuando cambia la superficie pública
 # (__all__) de forma que un consumidor necesite enterarse.
-version = "0.0.2"
+version = "0.0.3"
 description = "Cliente HTTP oficial para arca-service (facturación electrónica ARCA/AFIP) — mTLS + API key, sin depender de Django/Celery/saas-core."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,6 +25,7 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-httpx>=0.30",
+    "pytest-asyncio>=0.24",
     "ruff",
     "black",
     "mypy",
@@ -45,6 +46,10 @@ include = ["arca_service_client*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# "auto" -- un `async def test_...` corre como test async sin decorator propio (los
+# tests sync existentes no se ven afectados). Hace falta desde que existe
+# test_async_client.py (ver ese archivo, mockea AsyncArcaServiceClient).
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100

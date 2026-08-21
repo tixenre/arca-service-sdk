@@ -31,10 +31,14 @@
 Sin dependencia de Django/Celery/saas-core/arca_fe a propósito — solo `httpx` (mTLS
 nativo vía `cert=(cert, key)`) y `cryptography` (`crypto.seal`, para
 `importar_credencial`). Ver README.md para la guía completa (onboarding, idempotencia,
-webhooks)."""
+webhooks).
+
+¿Consumidor async (FastAPI/rambla.house)? `AsyncArcaServiceClient` (`async_client.py`)
+es la misma API con `async def`/`await` en cada método, sobre `httpx.AsyncClient`."""
 
 from __future__ import annotations
 
+from .async_client import AsyncArcaServiceClient
 from .client import ArcaServiceClient
 from .crypto import EnvelopeError, seal
 from .enums import Alicuota, CbteTipo, Concepto, CondicionIva, DocTipo
@@ -80,11 +84,12 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 __all__ = [
     "__version__",
     "ArcaServiceClient",
+    "AsyncArcaServiceClient",
     # enums (códigos AFIP — ver enums.py)
     "Alicuota",
     "CbteTipo",

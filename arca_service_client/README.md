@@ -84,6 +84,31 @@ with ArcaServiceClient(...) as client:
     client.emitir_comprobante(...)
 ```
 
+## Consumidor async (FastAPI): `AsyncArcaServiceClient`
+
+Misma API exacta, con `async`/`await` — mismos nombres de método, mismos tipos de
+retorno, sobre `httpx.AsyncClient` en vez de `httpx.Client`:
+
+```python
+from arca_service_client import AsyncArcaServiceClient
+
+async def facturar(cuit: str, comprobante: ComprobanteInput):
+    async with AsyncArcaServiceClient(
+        base_url="https://arca.tudominio.com",
+        client_cert_path="/etc/rambla/arca-client.crt",
+        client_key_path="/etc/rambla/arca-client.key",
+        api_key="...",
+    ) as client:
+        onboarding = await client.por_cuit(cuit)
+        return await client.emitir_comprobante(onboarding.external_ref, comprobante)
+```
+
+Fuera de un `async with`, cerrala vos con `await client.aclose()` (no `.close()` —
+mismo nombre que usa `httpx.AsyncClient` para lo mismo). No hay ninguna diferencia de
+comportamiento/contrato entre las dos variantes más allá de sync vs. async — todo lo
+demás de este README (idempotencia, errores, onboarding de credencial, webhooks) aplica
+igual a las dos.
+
 ## Onboarding del Cliente: `por_cuit`
 
 `por_cuit(cuit)` es el único lugar donde el CUIT se acepta como input en vez de
