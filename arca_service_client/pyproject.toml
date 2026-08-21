@@ -35,14 +35,24 @@ dev = [
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-# Mismo truco que arca_fe/pyproject.toml (vive en tixenre/arca-service): este
-# pyproject.toml está DENTRO del paquete que describe. `where=[".."]` le dice a
-# setuptools que busque un nivel arriba (la raíz del repo) y `include` filtra para
-# quedarse solo con este paquete, no con `arca_service_ui/` (JS, sin esto ni
-# aplicaría) que vive al lado.
-[tool.setuptools.packages.find]
-where = [".."]
-include = ["arca_service_client*"]
+# Layout real: este pyproject.toml vive en arca_service_client/ (afuera) y el código
+# real está un nivel más adentro, en arca_service_client/arca_service_client/ (mismo
+# nombre repetido, no un typo — mismo truco de layout que arca_fe/pyproject.toml en
+# tixenre/arca-service). Lo que hubo ACÁ antes (`[tool.setuptools.packages.find]` con
+# `where=[".."]` + `include=["arca_service_client*"]`) matcheaba DOS paquetes a la vez:
+# el real anidado (`arca_service_client.arca_service_client`, con código) Y un namespace
+# package implícito vacío al nivel de arriba (`arca_service_client`, sin `__init__.py`
+# propio — PEP 420). pip instalaba los dos, y como `import arca_service_client` (el
+# import que muestra el propio README) resuelve al namespace VACÍO —no al anidado—,
+# CUALQUIER instalación vía `pip install ...git+...#subdirectory=arca_service_client`
+# (el método que el README documenta) quedaba sin ninguna clase/función real. Solo
+# "andaba" en editable local (`pip install -e .`, que es como corren los tests de este
+# paquete) — nunca se detectó porque nadie lo instaló como consumidor real hasta ahora.
+# Fix: mapeo EXPLÍCITO, sin glob ni auto-find — un único paquete real, sin ambigüedad
+# de namespace posible.
+[tool.setuptools]
+packages = ["arca_service_client"]
+package-dir = { "arca_service_client" = "arca_service_client" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
