@@ -25,8 +25,18 @@ def _fecha(v: Any) -> date | None:
     return date.fromisoformat(v) if v else None
 
 
+def _parse_fecha_hora(v: str) -> datetime:
+    # `.replace("Z", "+00:00")` -- `datetime.fromisoformat` recién entiende el
+    # sufijo "Z" (UTC) nativo desde Python 3.11; este paquete declara
+    # `requires-python = ">=3.9"`, así que sin esto un `expires_at` de
+    # `crear_embed_token` (Phoenix/Jason codifica un `DateTime` UTC con "Z",
+    # no "+00:00") rompería para cualquier consumidor en 3.9/3.10. No-op si
+    # `v` no trae "Z" (offset explícito, o un naive datetime de AFIP).
+    return datetime.fromisoformat(v.replace("Z", "+00:00"))
+
+
 def _fecha_hora(v: Any) -> datetime | None:
-    return datetime.fromisoformat(v) if v else None
+    return _parse_fecha_hora(v) if v else None
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +252,26 @@ class BonificadoResult:
     @staticmethod
     def _from_json(d: dict) -> BonificadoResult:
         return BonificadoResult(bonificado=d["bonificado"])
+
+
+@dataclass(frozen=True)
+class EmbedTokenResult:
+    """Respuesta de `ArcaServiceClient.crear_embed_token` -- `embed_url` es un link
+    PÚBLICO (nadie necesita mTLS ni tu API key para abrirlo) que vale hasta
+    `expires_at` -- pensado para pasarle a TU frontend y que lo embeba en un
+    `<iframe src="...">`, no para guardarlo ni reusarlo después de que venza. NO hace
+    falta esto para mostrarle un comprobante a un usuario que ya está logueado en TU
+    propio backend -- para eso alcanza con `get_comprobante_html`/`_pdf` llamado del
+    lado servidor (ver el README, "Vista embebible (iframe)")."""
+
+    embed_url: str
+    expires_at: datetime
+
+    @staticmethod
+    def _from_json(d: dict) -> EmbedTokenResult:
+        return EmbedTokenResult(
+            embed_url=d["embed_url"], expires_at=_parse_fecha_hora(d["expires_at"])
+        )
 
 
 # ---------------------------------------------------------------------------

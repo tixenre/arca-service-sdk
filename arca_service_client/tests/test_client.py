@@ -11,7 +11,7 @@ ande."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -439,6 +439,36 @@ def test_get_comprobante_imagen(client, httpx_mock):
         content=b"\x89PNG...",
     )
     assert client.get_comprobante_imagen("cliente-1", "factura-1") == b"\x89PNG..."
+
+
+# ---------------------------------------------------------------------------
+# Vista embebible (iframe)
+# ---------------------------------------------------------------------------
+
+
+def test_crear_embed_token(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes/factura-1/embed-token",
+        json={
+            "embed_url": "https://arca.test/embed/comprobantes/xyz/comprobante.html",
+            "expires_at": "2026-08-21T22:30:00.000000Z",
+        },
+    )
+    result = client.crear_embed_token("cliente-1", "factura-1")
+    assert result.embed_url == "https://arca.test/embed/comprobantes/xyz/comprobante.html"
+    assert result.expires_at == datetime(2026, 8, 21, 22, 30, tzinfo=timezone.utc)
+
+
+def test_crear_embed_token_idempotency_key_ajena_levanta_not_found_error(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes/no-existe/embed-token",
+        status_code=404,
+        json={"detail": "No encontrado."},
+    )
+    with pytest.raises(NotFoundError):
+        client.crear_embed_token("cliente-1", "no-existe")
 
 
 # ---------------------------------------------------------------------------

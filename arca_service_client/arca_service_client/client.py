@@ -46,6 +46,7 @@ from .models import (
     BonificadoResult,
     CredencialResult,
     DiagnosticoResult,
+    EmbedTokenResult,
     EmisionResult,
     GenerarCsrResult,
     LoteItemResult,
@@ -377,6 +378,26 @@ class ArcaServiceClient:
         )
         _raise_for_status(resp)
         return resp.content
+
+    # ------------------------------------------------------------------
+    # Vista embebible (iframe) -- complementa a get_comprobante_html/_pdf,
+    # no los reemplaza: si TU backend ya tiene al usuario logueado, es más
+    # simple llamar get_comprobante_html/_pdf del lado servidor y servir
+    # ESE resultado como parte de tu propia página -- esto es para un link
+    # público/compartible (o cuando el browser tiene que pegarle directo a
+    # arca-service sin pasar por tu backend), ver el README.
+    # ------------------------------------------------------------------
+
+    def crear_embed_token(self, external_ref: str, idempotency_key: str) -> EmbedTokenResult:
+        """`embed_url` sirve el HTML del comprobante SIN mTLS/API key -- listo para
+        `<iframe src="...">`. Vale hasta `expires_at` (30 min por default del lado
+        servidor); no hay forma de revocar un token puntual antes de que venza (mismo
+        trade-off que un link de Stripe: la ventana corta ES el control)."""
+        resp = self._http.post(
+            f"/clientes/{external_ref}/comprobantes/{idempotency_key}/embed-token"
+        )
+        _raise_for_status(resp)
+        return EmbedTokenResult._from_json(resp.json())
 
 
 def _raise_for_status(

@@ -32,6 +32,7 @@ from .models import (
     BonificadoResult,
     CredencialResult,
     DiagnosticoResult,
+    EmbedTokenResult,
     EmisionResult,
     GenerarCsrResult,
     LoteItemResult,
@@ -324,3 +325,15 @@ class AsyncArcaServiceClient:
         )
         _raise_for_status(resp)
         return resp.content
+
+    # ------------------------------------------------------------------
+    # Vista embebible (iframe) -- ver ArcaServiceClient.crear_embed_token
+    # (client.py) para el detalle completo, es la misma doc.
+    # ------------------------------------------------------------------
+
+    async def crear_embed_token(self, external_ref: str, idempotency_key: str) -> EmbedTokenResult:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/comprobantes/{idempotency_key}/embed-token"
+        )
+        _raise_for_status(resp)
+        return EmbedTokenResult._from_json(resp.json())

@@ -66,6 +66,7 @@ from .models import (
     Dependencia,
     DiagnosticoResult,
     Domicilio,
+    EmbedTokenResult,
     EmisionResult,
     GenerarCsrResult,
     Impuesto,
@@ -84,7 +85,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 __all__ = [
     "__version__",
@@ -114,6 +115,7 @@ __all__ = [
     "Dependencia",
     "DiagnosticoResult",
     "Domicilio",
+    "EmbedTokenResult",
     "EmisionResult",
     "GenerarCsrResult",
     "Impuesto",

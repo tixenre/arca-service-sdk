@@ -145,6 +145,34 @@ intento) — reintentar el MISMO request con la MISMA key devuelve la emisión y
 existente en vez de duplicarla. Si reintentás con la misma key pero datos DISTINTOS,
 `emitir_comprobante` levanta `IdempotencyConflictError` (409).
 
+## Vista embebible (iframe): `crear_embed_token`
+
+Un link público, de vida corta, para mostrarle un comprobante a alguien sin que tu
+backend tenga que estar en el medio — mismo patrón que la "hosted invoice page" de
+Stripe. Complementa a `get_comprobante_html`/`get_comprobante_pdf` (llamado del lado
+servidor, con tu mTLS/API key), no los reemplaza: si tu backend ya tiene al usuario
+logueado, seguí sirviendo vos ese resultado. `crear_embed_token` es para cuando el
+HTML lo tiene que pedir directamente el browser (un `<iframe src="...">`) o el link se
+comparte fuera de tu propia sesión autenticada.
+
+```python
+resultado = client.crear_embed_token("cliente-1", "factura-8231")
+resultado.embed_url    # "https://arca.tudominio.com/embed/comprobantes/<token>/comprobante.html"
+resultado.expires_at   # datetime UTC -- 30 min desde la emisión del token, por default
+```
+
+`embed_url` no requiere mTLS ni API key para abrirse — cualquiera con el link puede
+verlo hasta `expires_at`, así que tratalo como un secreto de vida corta (no lo
+loggees, no lo guardes más tiempo del que dure). No hay forma de revocar un token
+puntual antes de que venza (mismo trade-off que un link de Stripe: la ventana corta ES
+el control) — pedí uno nuevo si el anterior se filtró.
+
+Dos errores distintos, en dos momentos distintos: `crear_embed_token` en sí levanta
+`NotFoundError` (ver "Errores" abajo) si `idempotency_key` no resuelve a una emisión
+tuya — eso lo ves vos, en tu backend, al pedir el token. Ya con el `embed_url` en
+mano, si vence o el comprobante deja de estar `"issued"`, quien lo abra en el browser
+recibe un 404 directo de arca-service — ese error no pasa por el SDK ni por vos.
+
 ## Verificar la firma de un webhook
 
 ```python
