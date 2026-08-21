@@ -8,7 +8,7 @@ Cliente HTTP oficial para [arca-service](https://github.com/tixenre/arca-service
 ## Instalación
 
 ```
-pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@vX.Y.Z#subdirectory=arca_service_client"
+pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@arca-service-client-vX.Y.Z#subdirectory=arca_service_client"
 ```
 
 ## Uso

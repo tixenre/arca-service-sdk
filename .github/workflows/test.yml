@@ -24,3 +24,21 @@ jobs:
       - run: black --check .
       - run: mypy arca_service_client
       - run: python -m pytest -v
+
+  # Job separado, entorno separado — mismo criterio que saas-core/site_builder: JS/TS,
+  # no depende de nada de arca_service_client ni viceversa.
+  arca-service-ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: arca_service_ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: arca_service_ui/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

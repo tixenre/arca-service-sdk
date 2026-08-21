@@ -13,10 +13,11 @@ pública; lo único sensible es la clave PRIVADA de cada integrador, que nunca v
 
 - **[`arca_service_client/`](arca_service_client/)** — cliente Python (mTLS + API key,
   `httpx`). Instalable vía
-  `pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@vX.Y.Z#subdirectory=arca_service_client"`.
+  `pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@arca-service-client-vX.Y.Z#subdirectory=arca_service_client"`.
   Ver su propio README para la guía completa.
-- **`arca_service_ui/`** — hook React headless (`@tixenre/arca-service-ui`) para el
-  flujo de onboarding de credencial. Publicado a GitHub Packages.
+- **[`arca_service_ui/`](arca_service_ui/)** — hook React headless
+  (`@tixenre/arca-service-ui`) para el flujo de onboarding de credencial. Publicado a
+  GitHub Packages en cada tag `arca-service-ui-vX.Y.Z`. Ver su propio README.
 
 Cada paquete versiona y publica por separado (tags `arca-service-client-vX.Y.Z` /
 `arca-service-ui-vX.Y.Z`) — mismo criterio que `saas_core`/`site_builder` en
