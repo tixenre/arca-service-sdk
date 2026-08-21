@@ -1,5 +1,5 @@
 """arca_service_client.crypto — sellado de payloads sensibles para
-`POST /orgs/{external_ref}/credencial/importar`.
+`POST /clientes/{external_ref}/credencial/importar`.
 
 Puerto EXACTO de `seal()` de `saas_core.envelope` (tixenre/saas-core) — SOLO esa función:
 `unseal()` no hace falta acá (eso lo corre arca-service del lado de adentro, con su
@@ -41,9 +41,10 @@ class EnvelopeError(RuntimeError):
 def seal(plaintext: bytes, recipient_public_key_pem: bytes) -> dict[str, str]:
     """Cifra `plaintext` para que SOLO arca-service (dueño de la privada correspondiente
     a `recipient_public_key_pem`, obtenida de `GET /envelope/clave-publica`) lo pueda
-    leer. Devuelve un dict de strings base64 — mismo shape que `SealedPayload` en
-    `apps/arca/schemas.py` de arca-service (`v`/`ek`/`n`/`ct`), directamente
-    JSON-serializable para el campo `sealed` de `ImportarCredencialIn`."""
+    leer. Devuelve un dict de strings base64 — mismo shape que
+    `lib/arca_service_phx_web/schemas/sealed_payload.ex` de arca-service (`v`/`ek`/`n`/
+    `ct`), directamente JSON-serializable para el campo `sealed` de
+    `ImportarCredencialIn`."""
     try:
         public_key = serialization.load_pem_public_key(recipient_public_key_pem)
     except Exception as exc:

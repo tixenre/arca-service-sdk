@@ -8,8 +8,13 @@
         client_key_path="/etc/ganche/arca-client.key",
         api_key="...",
     )
+
+    # Primer llamado siempre: resuelve (o crea) el Cliente dueño de este CUIT, y
+    # crea/reactiva el vínculo de TU Plataforma con él.
+    onboarding = client.por_cuit("20301234563")
+
     emision = client.emitir_comprobante(
-        "org-123",
+        onboarding.external_ref,
         ComprobanteInput(
             idempotency_key="factura-8231",
             concepto=Concepto.PRODUCTOS,
@@ -37,6 +42,7 @@ from .exceptions import (
     AfipUnavailableError,
     ArcaServiceError,
     ArcaServiceServerError,
+    BonificadoLimiteError,
     IdempotencyConflictError,
     NotFoundError,
     RateLimitedError,
@@ -45,6 +51,7 @@ from .exceptions import (
 )
 from .models import (
     Actividad,
+    BonificadoResult,
     Caracterizacion,
     Categoria,
     Chequeo,
@@ -61,6 +68,7 @@ from .models import (
     ItemFactura,
     ItemIva,
     LoteItemResult,
+    OnboardingResult,
     Opcional,
     PersonaArca,
     PreviewResult,
@@ -72,7 +80,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 __all__ = [
     "__version__",
@@ -92,6 +100,7 @@ __all__ = [
     "Tributo",
     # response
     "Actividad",
+    "BonificadoResult",
     "Caracterizacion",
     "Categoria",
     "Chequeo",
@@ -104,6 +113,7 @@ __all__ = [
     "GenerarCsrResult",
     "Impuesto",
     "LoteItemResult",
+    "OnboardingResult",
     "PersonaArca",
     "PreviewResult",
     "PuntosVentaResult",
@@ -119,6 +129,7 @@ __all__ = [
     "ArcaServiceError",
     "AfipUnavailableError",
     "ArcaServiceServerError",
+    "BonificadoLimiteError",
     "IdempotencyConflictError",
     "NotFoundError",
     "RateLimitedError",

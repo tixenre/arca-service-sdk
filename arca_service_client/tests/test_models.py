@@ -1,7 +1,8 @@
 """Tests de arca_service_client.models — sin red. `to_payload()` (request) y
 `_from_json()` (response) son puro mapeo de datos; estos tests fijan el CONTRATO exacto
-contra `apps/arca/schemas.py` real (nombres de campo, Decimal->string, date->ISO, qué se
-omite vs qué se manda siempre) para que un futuro refactor no lo rompa en silencio."""
+contra `lib/arca_service_phx_web/schemas/*.ex` real (nombres de campo, Decimal->string,
+date->ISO, qué se omite vs qué se manda siempre) para que un futuro refactor no lo rompa
+en silencio."""
 
 from __future__ import annotations
 

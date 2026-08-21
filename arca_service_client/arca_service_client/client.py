@@ -1,12 +1,20 @@
 """arca_service_client.client — `ArcaServiceClient`, envoltorio fino sobre la API HTTP
-de arca-service (tixenre/arca-service). Un método por endpoint, verificado contra
-`apps/arca/api.py`/`apps/arca/schemas.py` reales de ese repo — no una capa de abstracción
-propia encima, para que quien lea `apps/arca/api.py` reconozca 1:1 cada llamada de acá.
+de arca-service (tixenre/arca-service, stack Phoenix -- `arca_service_phx/`). Un método
+por endpoint, verificado contra `lib/arca_service_phx_web/router.ex`/
+`lib/arca_service_phx_web/controllers/*.ex`/`lib/arca_service_phx_web/schemas/*.ex`
+reales de ese repo — no una capa de abstracción propia encima, para que quien lea el
+router de Phoenix reconozca 1:1 cada llamada de acá.
 
-Auth: mTLS (certificado de cliente propio del producto, emitido por la CA mTLS de
-Cloudflare que arca-service exige delante — ver `apps/clients/auth.py` de ese repo) +
-API key como Bearer token. Las dos son obligatorias del lado servidor; sin el cert mTLS
-la request ni siquiera llega a la capa de auth de la API key."""
+Modelo Cliente/Plataforma (Fase 12 de arca-service): `external_ref` identifica un
+`Cliente` (el CUIT/CUIL dueño real de la facturación) — nunca lo elegís vos, lo devuelve
+`por_cuit()` la primera vez que onboardeás un CUIT. Todo lo demás en este cliente
+(emisión, preview, credencial, etc.) actúa DESDE tu Plataforma SOBRE ese Cliente.
+
+Auth: mTLS (certificado propio de tu Plataforma como integrador, emitido por la CA mTLS
+de Cloudflare que arca-service exige delante — ver
+`lib/arca_service_phx_web/plugs/plataforma_auth.ex` de ese repo) + API key como Bearer
+token. Las dos son obligatorias del lado servidor; sin el cert mTLS la request ni
+siquiera llega a la capa de auth de la API key."""
 
 from __future__ import annotations
 
@@ -25,7 +33,9 @@ import httpx as _httpx
 from .crypto import seal
 from .exceptions import (
     AfipUnavailableError,
+    ArcaServiceError,
     ArcaServiceServerError,
+    BonificadoLimiteError,
     IdempotencyConflictError,
     NotFoundError,
     RateLimitedError,
@@ -33,18 +43,20 @@ from .exceptions import (
     ValidationError,
 )
 from .models import (
+    BonificadoResult,
     CredencialResult,
     DiagnosticoResult,
     EmisionResult,
     GenerarCsrResult,
     LoteItemResult,
+    OnboardingResult,
     PersonaArca,
     PreviewResult,
     PuntosVentaResult,
 )
 
 _TIMEOUT_SECONDS_DEFAULT = 30.0
-LAYOUT_DEFAULT = "oficial"  # mismo default que `apps/arca/render.py::LAYOUT_DEFAULT`
+LAYOUT_DEFAULT = "oficial"  # mismo default que `ArcaServicePhx.Arca.Render.layout_default/0`
 
 
 @dataclass
@@ -56,10 +68,11 @@ class ArcaServiceClient:
 
     `client_cert_path`/`client_key_path`: rutas al certificado y clave privada de
     cliente para mTLS — el par que la CA mTLS de Cloudflare delante de arca-service
-    emitió para TU producto (ganche/inmo/rambla/...), no el certificado AFIP de ninguna
-    org particular (ese es interno de arca-service, nunca sale de ahí).
+    emitió para TU Plataforma como integrador (ganche/inmo/rambla/...), no el
+    certificado AFIP de ningún Cliente particular (ese es interno de arca-service,
+    nunca sale de ahí).
 
-    `api_key`: la API key de tu `Client` en arca-service (Bearer token) — identifica
+    `api_key`: la API key de tu `Plataforma` en arca-service (Bearer token) — identifica
     QUIÉN sos, el mTLS ya identificó QUE SOS VOS.
 
     Se puede usar como context manager (`with ArcaServiceClient(...) as c:`) para cerrar
@@ -102,14 +115,25 @@ class ArcaServiceClient:
     # justo la distinción que hace útil tener excepciones tipadas.
     # ------------------------------------------------------------------
 
-    def _raise_for_status(self, resp: httpx.Response) -> None:
+    def _raise_for_status(
+        self,
+        resp: httpx.Response,
+        *,
+        conflict_error: type[ArcaServiceError] = IdempotencyConflictError,
+    ) -> None:
+        """`conflict_error`: qué tipo levantar en un 409 — por default
+        `IdempotencyConflictError` (el caso general, casi todo el resto de la API), pero
+        `set_bonificado` pasa `BonificadoLimiteError` porque SU 409 es un tipo de
+        conflicto totalmente distinto (circuit-breaker, no idempotencia) y confundir los
+        dos tipos rompería a cualquier caller que discrimine por subtipo (ver
+        exceptions.py)."""
         if resp.status_code < 400:
             return
         detail = _extraer_detail(resp)
         if resp.status_code == 404:
             raise NotFoundError(detail, status_code=404, response=resp)
         if resp.status_code == 409:
-            raise IdempotencyConflictError(detail, status_code=409, response=resp)
+            raise conflict_error(detail, status_code=409, response=resp)
         if resp.status_code == 422:
             raise ValidationError(detail, status_code=422, response=resp)
         if resp.status_code == 429:
@@ -127,16 +151,49 @@ class ArcaServiceClient:
         raise ArcaServiceServerError(detail, status_code=resp.status_code, response=resp)
 
     # ------------------------------------------------------------------
-    # Onboarding — dos caminos hacia una credencial (ver docstring de
-    # `apps/arca/api.py` en arca-service): sin cert todavía, `generar_csr` +
-    # `completar_credencial`; con cert+clave propios, `importar_credencial`.
+    # Cliente — onboarding por CUIT + vínculo con tu Plataforma (Fase 12).
+    # SIEMPRE el primer llamado: todo lo demás necesita el `external_ref`
+    # que devuelve `por_cuit`.
+    # ------------------------------------------------------------------
+
+    def por_cuit(self, cuit: str) -> OnboardingResult:
+        """Idempotente en dos sentidos (ver
+        `ArcaServicePhx.Clientes.get_or_create_por_cuit/2`): un CUIT nuevo crea el
+        `Cliente`; uno ya onboardeado por OTRA Plataforma se reusa, creando (o
+        reactivando) solo TU vínculo con él — nunca un segundo `Cliente` para el mismo
+        CUIT. Llamalo de nuevo con el mismo CUIT las veces que haga falta: nunca duplica
+        nada, siempre devuelve el mismo `external_ref`."""
+        resp = self._http.post("/clientes/por-cuit", json={"cuit": cuit})
+        self._raise_for_status(resp)
+        return OnboardingResult._from_json(resp.json())
+
+    def set_bonificado(self, external_ref: str, bonificado: bool) -> BonificadoResult:
+        """Togglea si este Cliente, usado A TRAVÉS de TU Plataforma, queda exento de
+        pagar su propia suscripción a arca-service (ver el plan de arca-service,
+        "Bonificación cruzada") — nunca afecta el vínculo del Cliente con NINGUNA otra
+        Plataforma. Sujeto al circuit-breaker de seguridad del lado servidor: activar
+        (`bonificado=True`) un vínculo nuevo puede levantar `BonificadoLimiteError` (409)
+        si tu Plataforma llegó al límite que arca-service te tiene configurado —
+        desactivar (`bonificado=False`) nunca lo levanta."""
+        resp = self._http.put(
+            f"/clientes/{external_ref}/bonificado", json={"bonificado": bonificado}
+        )
+        self._raise_for_status(resp, conflict_error=BonificadoLimiteError)
+        return BonificadoResult._from_json(resp.json())
+
+    # ------------------------------------------------------------------
+    # Onboarding de credencial — dos caminos hacia una credencial AFIP para
+    # un Cliente ya onboardeado (ver
+    # `lib/arca_service_phx_web/controllers/credencial_controller.ex` en
+    # arca-service): sin cert todavía, `generar_csr` + `completar_credencial`;
+    # con cert+clave propios, `importar_credencial`.
     # ------------------------------------------------------------------
 
     def generar_csr(
         self, external_ref: str, cuit: str, *, regenerar: bool = False
     ) -> GenerarCsrResult:
         resp = self._http.post(
-            f"/orgs/{external_ref}/csr", json={"cuit": cuit, "regenerar": regenerar}
+            f"/clientes/{external_ref}/csr", json={"cuit": cuit, "regenerar": regenerar}
         )
         self._raise_for_status(resp)
         return GenerarCsrResult._from_json(resp.json())
@@ -145,7 +202,7 @@ class ArcaServiceClient:
         self, external_ref: str, cert_pem: str, *, point_of_sale: int = 0
     ) -> CredencialResult:
         resp = self._http.post(
-            f"/orgs/{external_ref}/credencial/completar",
+            f"/clientes/{external_ref}/credencial/completar",
             json={"cert_pem": cert_pem, "point_of_sale": point_of_sale},
         )
         self._raise_for_status(resp)
@@ -173,7 +230,7 @@ class ArcaServiceClient:
         sealed = seal(json.dumps(secreto).encode(), public_key_pem.encode())
 
         resp = self._http.post(
-            f"/orgs/{external_ref}/credencial/importar",
+            f"/clientes/{external_ref}/credencial/importar",
             json={
                 "cuit": cuit,
                 "cert_pem": cert_pem,
@@ -185,14 +242,14 @@ class ArcaServiceClient:
         return CredencialResult._from_json(resp.json())
 
     def diagnosticar_credencial(self, external_ref: str) -> DiagnosticoResult:
-        resp = self._http.post(f"/orgs/{external_ref}/credencial/diagnostico")
+        resp = self._http.post(f"/clientes/{external_ref}/credencial/diagnostico")
         self._raise_for_status(resp)
         return DiagnosticoResult._from_json(resp.json())
 
     def listar_puntos_de_venta(self, external_ref: str) -> PuntosVentaResult:
         """Requiere que la credencial ya exista (`completar_credencial`/
         `importar_credencial` primero) — devuelve `NotFoundError` si no."""
-        resp = self._http.get(f"/orgs/{external_ref}/credencial/puntos-venta")
+        resp = self._http.get(f"/clientes/{external_ref}/credencial/puntos-venta")
         self._raise_for_status(resp)
         return PuntosVentaResult._from_json(resp.json())
 
@@ -203,7 +260,7 @@ class ArcaServiceClient:
     def consultar_padron(self, external_ref: str, cuit: str) -> PersonaArca:
         """Datos de padrón de CUALQUIER CUIT (ej. un receptor a facturar), autenticando
         con la credencial propia de `external_ref`."""
-        resp = self._http.get(f"/orgs/{external_ref}/padron/{cuit}")
+        resp = self._http.get(f"/clientes/{external_ref}/padron/{cuit}")
         self._raise_for_status(resp)
         return PersonaArca._from_json(resp.json())
 
@@ -215,7 +272,7 @@ class ArcaServiceClient:
         self, external_ref: str, comprobante: ComprobanteInput
     ) -> PreviewResult:
         resp = self._http.post(
-            f"/orgs/{external_ref}/comprobantes/preview", json=comprobante.to_payload()
+            f"/clientes/{external_ref}/comprobantes/preview", json=comprobante.to_payload()
         )
         self._raise_for_status(resp)
         return PreviewResult._from_json(resp.json())
@@ -226,7 +283,7 @@ class ArcaServiceClient:
         """`nota_credito.comprobante_asociado` es obligatorio del lado servidor — pasalo
         seteado en el `ComprobanteInput` (ver su docstring)."""
         resp = self._http.post(
-            f"/orgs/{external_ref}/notas-credito/preview", json=nota_credito.to_payload()
+            f"/clientes/{external_ref}/notas-credito/preview", json=nota_credito.to_payload()
         )
         self._raise_for_status(resp)
         return PreviewResult._from_json(resp.json())
@@ -236,7 +293,7 @@ class ArcaServiceClient:
     ) -> PreviewResult:
         """Igual que `preview_nota_credito` — `nota_debito.comprobante_asociado` obligatorio."""
         resp = self._http.post(
-            f"/orgs/{external_ref}/notas-debito/preview", json=nota_debito.to_payload()
+            f"/clientes/{external_ref}/notas-debito/preview", json=nota_debito.to_payload()
         )
         self._raise_for_status(resp)
         return PreviewResult._from_json(resp.json())
@@ -247,7 +304,9 @@ class ArcaServiceClient:
     # ------------------------------------------------------------------
 
     def emitir_comprobante(self, external_ref: str, comprobante: ComprobanteInput) -> EmisionResult:
-        resp = self._http.post(f"/orgs/{external_ref}/comprobantes", json=comprobante.to_payload())
+        resp = self._http.post(
+            f"/clientes/{external_ref}/comprobantes", json=comprobante.to_payload()
+        )
         self._raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
 
@@ -255,18 +314,20 @@ class ArcaServiceClient:
         self, external_ref: str, nota_credito: ComprobanteInput
     ) -> EmisionResult:
         resp = self._http.post(
-            f"/orgs/{external_ref}/notas-credito", json=nota_credito.to_payload()
+            f"/clientes/{external_ref}/notas-credito", json=nota_credito.to_payload()
         )
         self._raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
 
     def emitir_nota_debito(self, external_ref: str, nota_debito: ComprobanteInput) -> EmisionResult:
-        resp = self._http.post(f"/orgs/{external_ref}/notas-debito", json=nota_debito.to_payload())
+        resp = self._http.post(
+            f"/clientes/{external_ref}/notas-debito", json=nota_debito.to_payload()
+        )
         self._raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
 
     def get_comprobante(self, external_ref: str, idempotency_key: str) -> EmisionResult:
-        resp = self._http.get(f"/orgs/{external_ref}/comprobantes/{idempotency_key}")
+        resp = self._http.get(f"/clientes/{external_ref}/comprobantes/{idempotency_key}")
         self._raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
 
@@ -286,7 +347,7 @@ class ArcaServiceClient:
         self, external_ref: str, comprobantes: list[ComprobanteInput]
     ) -> list[LoteItemResult]:
         resp = self._http.post(
-            f"/orgs/{external_ref}/comprobantes/lote",
+            f"/clientes/{external_ref}/comprobantes/lote",
             json={"comprobantes": [c.to_payload() for c in comprobantes]},
         )
         self._raise_for_status(resp)
@@ -296,7 +357,7 @@ class ArcaServiceClient:
         self, external_ref: str, notas_credito: list[ComprobanteInput]
     ) -> list[LoteItemResult]:
         resp = self._http.post(
-            f"/orgs/{external_ref}/notas-credito/lote",
+            f"/clientes/{external_ref}/notas-credito/lote",
             json={"notas_credito": [n.to_payload() for n in notas_credito]},
         )
         self._raise_for_status(resp)
@@ -306,7 +367,7 @@ class ArcaServiceClient:
         self, external_ref: str, notas_debito: list[ComprobanteInput]
     ) -> list[LoteItemResult]:
         resp = self._http.post(
-            f"/orgs/{external_ref}/notas-debito/lote",
+            f"/clientes/{external_ref}/notas-debito/lote",
             json={"notas_debito": [n.to_payload() for n in notas_debito]},
         )
         self._raise_for_status(resp)
@@ -321,7 +382,7 @@ class ArcaServiceClient:
         `EmisionResult.webhook_delivered`/`.webhook_last_error`) o tu endpoint propio
         estuvo caído y se perdió la notificación original."""
         resp = self._http.post(
-            f"/orgs/{external_ref}/comprobantes/{idempotency_key}/webhook/reenviar"
+            f"/clientes/{external_ref}/comprobantes/{idempotency_key}/webhook/reenviar"
         )
         self._raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
@@ -335,7 +396,7 @@ class ArcaServiceClient:
         self, external_ref: str, idempotency_key: str, *, layout: str = LAYOUT_DEFAULT
     ) -> str:
         resp = self._http.get(
-            f"/orgs/{external_ref}/comprobantes/{idempotency_key}/comprobante.html",
+            f"/clientes/{external_ref}/comprobantes/{idempotency_key}/comprobante.html",
             params={"layout": layout},
         )
         self._raise_for_status(resp)
@@ -345,7 +406,7 @@ class ArcaServiceClient:
         self, external_ref: str, idempotency_key: str, *, layout: str = LAYOUT_DEFAULT
     ) -> bytes:
         resp = self._http.get(
-            f"/orgs/{external_ref}/comprobantes/{idempotency_key}/comprobante.pdf",
+            f"/clientes/{external_ref}/comprobantes/{idempotency_key}/comprobante.pdf",
             params={"layout": layout},
         )
         self._raise_for_status(resp)
@@ -355,7 +416,7 @@ class ArcaServiceClient:
         self, external_ref: str, idempotency_key: str, *, layout: str = LAYOUT_DEFAULT
     ) -> bytes:
         resp = self._http.get(
-            f"/orgs/{external_ref}/comprobantes/{idempotency_key}/comprobante.imagen",
+            f"/clientes/{external_ref}/comprobantes/{idempotency_key}/comprobante.imagen",
             params={"layout": layout},
         )
         self._raise_for_status(resp)
@@ -364,12 +425,12 @@ class ArcaServiceClient:
 
 def _extraer_detail(resp: httpx.Response) -> str:
     """El body de error de arca-service siempre es `{"detail": "string"}` (ver
-    `config/api.py` de ese repo — todo exception handler devuelve ese shape, INCLUSO el
-    de `ValidationError` de Ninja, que por default manda una lista de objetos; arca-service
-    lo aplana a string antes de responder). Si algún día no lo fuera (respuesta
-    corrupta, proxy intermedio devolviendo HTML de error), no rompe acá — cae al texto
-    crudo en vez de un `KeyError`/`JSONDecodeError` que ocultaría el error real detrás de
-    OTRO error."""
+    `lib/arca_service_phx_web/controllers/fallback_controller.ex` de ese repo -- todo
+    error pasa por ahí, INCLUSO un changeset de Ecto inválido, que por default trae
+    errores por campo; arca-service lo aplana a un único string antes de responder). Si
+    algún día no lo fuera (respuesta corrupta, proxy intermedio devolviendo HTML de
+    error), no rompe acá — cae al texto crudo en vez de un `KeyError`/`JSONDecodeError`
+    que ocultaría el error real detrás de OTRO error."""
     try:
         data = resp.json()
         if isinstance(data, dict) and "detail" in data:

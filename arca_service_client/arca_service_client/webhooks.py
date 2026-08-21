@@ -1,9 +1,10 @@
 """arca_service_client.webhooks — verificación de la firma de un webhook de arca-service.
 
-Puerto EXACTO del esquema de firma de `apps/arca/tasks.py::deliver_webhook_task`
-(tixenre/arca-service): HMAC-SHA256 con `Client.webhook_secret` sobre
-`timestamp.encode() + b"." + body` — el timestamp entra DENTRO del material firmado, no
-alcanza con concatenarlo del lado del integrador. Ver SECURITY.md de arca-service:
+Puerto EXACTO del esquema de firma de
+`lib/arca_service_phx/workers/entregar_webhook.ex` (tixenre/arca-service, stack Phoenix):
+HMAC-SHA256 con `Plataforma.webhook_secret` sobre `timestamp.encode() + b"." + body` — el
+timestamp entra DENTRO del material firmado, no alcanza con concatenarlo del lado del
+integrador. Ver SECURITY.md de arca-service:
 "Verificar la firma HMAC-SHA256 de cada webhook... antes de procesar el payload — un
 webhook sin verificar es indistinguible de uno falsificado por cualquiera que conozca la
 URL", y "Rechazar un webhook cuyo X-Arca-Timestamp esté fuera de una ventana de
@@ -30,8 +31,8 @@ def verify_webhook_signature(
 ) -> bool:
     """`True` si `signature` (header `X-Arca-Signature`) es una firma HMAC-SHA256 válida
     de `payload` (el body CRUDO del webhook, sin re-serializar) con `timestamp` (header
-    `X-Arca-Timestamp`) y `secret` (`Client.webhook_secret`, generado/rotado desde
-    /admin/ de arca-service) — Y `timestamp` cae dentro de `tolerance_seconds` del reloj
+    `X-Arca-Timestamp`) y `secret` (`Plataforma.webhook_secret`, generado/rotado por un
+    operador de arca-service) — Y `timestamp` cae dentro de `tolerance_seconds` del reloj
     local. `False` ante CUALQUIER problema (firma que no matchea, timestamp fuera de
     ventana, timestamp no numérico) — nunca levanta, para que el caller pueda hacer
     simplemente `if not verify_webhook_signature(...): return HttpResponse(status=401)`

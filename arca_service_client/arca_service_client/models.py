@@ -1,6 +1,7 @@
 """arca_service_client.models — dataclasses de request/response, espejo exacto de
-`apps/arca/schemas.py` (tixenre/arca-service). Los de REQUEST (`ComprobanteInput` y sus
-componentes) saben serializarse a sí mismos (`to_payload()`) al shape JSON que la API
+`lib/arca_service_phx_web/schemas/*.ex` (tixenre/arca-service, stack Phoenix). Los de
+REQUEST (`ComprobanteInput` y sus componentes) saben serializarse a sí mismos
+(`to_payload()`) al shape JSON que la API
 espera — Decimal -> string (nunca un `float` crudo: evita sorpresas de representación
 binaria en un monto), `date` -> ISO. Los de RESPONSE (`EmisionResult`, `PersonaArca`,
 etc.) tienen un `_from_json` que parsea el dict que devuelve `response.json()` — nunca
@@ -35,8 +36,9 @@ def _fecha_hora(v: Any) -> datetime | None:
 
 @dataclass
 class ItemIva:
-    """Desglose de neto por alícuota — ver `apps/arca/schemas.py::ItemIvaIn`.
-    `alicuota_id`: id de `arca_service_client.enums.Alicuota`."""
+    """Desglose de neto por alícuota — ver
+    `lib/arca_service_phx_web/schemas/item_iva_in.ex`. `alicuota_id`: id de
+    `arca_service_client.enums.Alicuota`."""
 
     alicuota_id: int
     base_imponible: Decimal
@@ -208,6 +210,38 @@ class ComprobanteInput:
         if self.comprobante_asociado is not None:
             payload["comprobante_asociado"] = self.comprobante_asociado._to_dict()
         return payload
+
+
+# ---------------------------------------------------------------------------
+# Response — Cliente (onboarding por CUIT + vínculo, Fase 12)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OnboardingResult:
+    """Respuesta de `ArcaServiceClient.por_cuit` — el `external_ref` a usar en TODO lo
+    demás. Nunca lo elijas vos ni lo derives del CUIT: es un UUID que arca-service asigna,
+    estable para ese CUIT sin importar cuántas Plataformas distintas lo hayan
+    onboardeado."""
+
+    external_ref: str
+
+    @staticmethod
+    def _from_json(d: dict) -> OnboardingResult:
+        return OnboardingResult(external_ref=d["external_ref"])
+
+
+@dataclass(frozen=True)
+class BonificadoResult:
+    """Respuesta de `ArcaServiceClient.set_bonificado` — el estado YA aplicado (no un eco
+    ciego de lo que mandaste: si el vínculo ya estaba en el valor pedido, arca-service no
+    hace nada y devuelve ese mismo valor, sin contar contra el límite de seguridad)."""
+
+    bonificado: bool
+
+    @staticmethod
+    def _from_json(d: dict) -> BonificadoResult:
+        return BonificadoResult(bonificado=d["bonificado"])
 
 
 # ---------------------------------------------------------------------------
