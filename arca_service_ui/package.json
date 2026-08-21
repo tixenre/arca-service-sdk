@@ -1,6 +1,6 @@
 {
   "name": "@tixenre/arca-service-ui",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Hook React headless para el onboarding de credencial de arca-service (facturacion electronica ARCA/AFIP) -- sin JSX ni CSS, el producto pone su propia UI.",
   "type": "module",
   "main": "./dist/index.js",

@@ -6,6 +6,7 @@ import type {
   CredencialResult,
   DiagnosticoResult,
   GenerarCsrResult,
+  OnboardingResult,
   PuntosVentaResult,
   UseArcaCredentialResult,
 } from "./types";
@@ -50,19 +51,25 @@ function useAsyncSlot<T>(): [AsyncSlot<T>, (fn: () => Promise<T>) => Promise<voi
 }
 
 /**
- * Onboarding de credencial de arca-service — 4 slots de estado independientes
- * (`csr`/`credencial`/`diagnostico`/`puntosVenta`), cada uno maneja su propio ciclo
- * `idle -> loading -> ready|error` sin pisar a los demás.
+ * Onboarding de credencial de arca-service — 5 slots de estado independientes
+ * (`onboarding`/`csr`/`credencial`/`diagnostico`/`puntosVenta`), cada uno maneja su
+ * propio ciclo `idle -> loading -> ready|error` sin pisar a los demás.
  *
  * Headless a propósito: no renderiza nada, no importa CSS — el producto arma su propia
  * UI arriba de este estado. Un wizard de varios pasos con estilos propios de este
  * paquete se nota "pegado" en una UI ajena; un bloque de estado no.
  */
 export function useArcaCredential(backend: ArcaServiceBackend): UseArcaCredentialResult {
+  const [onboarding, runOnboarding, resetOnboarding] = useAsyncSlot<OnboardingResult>();
   const [csr, runCsr, resetCsr] = useAsyncSlot<GenerarCsrResult>();
   const [credencial, runCredencial, resetCredencial] = useAsyncSlot<CredencialResult>();
   const [diagnostico, runDiagnostico, resetDiagnostico] = useAsyncSlot<DiagnosticoResult>();
   const [puntosVenta, runPuntosVenta, resetPuntosVenta] = useAsyncSlot<PuntosVentaResult>();
+
+  const porCuit = useCallback(
+    (cuit: string) => runOnboarding(() => backend.porCuit(cuit)),
+    [backend, runOnboarding],
+  );
 
   const generarCsr = useCallback(
     (cuit: string, regenerar = false) => runCsr(() => backend.generarCsr(cuit, regenerar)),
@@ -94,17 +101,20 @@ export function useArcaCredential(backend: ArcaServiceBackend): UseArcaCredentia
   );
 
   const reset = useCallback(() => {
+    resetOnboarding();
     resetCsr();
     resetCredencial();
     resetDiagnostico();
     resetPuntosVenta();
-  }, [resetCsr, resetCredencial, resetDiagnostico, resetPuntosVenta]);
+  }, [resetOnboarding, resetCsr, resetCredencial, resetDiagnostico, resetPuntosVenta]);
 
   return {
+    onboarding,
     csr,
     credencial,
     diagnostico,
     puntosVenta,
+    porCuit,
     generarCsr,
     completarCredencial,
     importarCredencial,

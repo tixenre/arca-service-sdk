@@ -6,6 +6,7 @@ export type {
   CredencialResult,
   DiagnosticoResult,
   GenerarCsrResult,
+  OnboardingResult,
   PuntoVentaExcluido,
   PuntoVentaHabilitado,
   PuntosVentaResult,

@@ -16,6 +16,7 @@ function deferred<T>() {
 
 function makeBackend(overrides: Partial<ArcaServiceBackend> = {}): ArcaServiceBackend {
   return {
+    porCuit: vi.fn().mockResolvedValue({ externalRef: "ext-1" }),
     generarCsr: vi.fn().mockResolvedValue({ csrPem: "csr", alias: "alias-1" }),
     completarCredencial: vi.fn().mockResolvedValue({ pointOfSale: 0, active: true }),
     importarCredencial: vi.fn().mockResolvedValue({ pointOfSale: 0, active: true }),
@@ -26,8 +27,46 @@ function makeBackend(overrides: Partial<ArcaServiceBackend> = {}): ArcaServiceBa
 }
 
 describe("useArcaCredential", () => {
-  it("arranca con los 4 slots en idle", () => {
+  it("arranca con los 5 slots en idle", () => {
     const { result } = renderHook(() => useArcaCredential(makeBackend()));
+    expect(result.current.onboarding.status).toBe("idle");
+    expect(result.current.csr.status).toBe("idle");
+    expect(result.current.credencial.status).toBe("idle");
+    expect(result.current.diagnostico.status).toBe("idle");
+    expect(result.current.puntosVenta.status).toBe("idle");
+  });
+
+  it("porCuit: idle -> loading -> ready con el external_ref", async () => {
+    const { promise, resolve } = deferred<{ externalRef: string }>();
+    const backend = makeBackend({ porCuit: vi.fn().mockReturnValue(promise) });
+    const { result } = renderHook(() => useArcaCredential(backend));
+
+    act(() => {
+      void result.current.porCuit("20301234563");
+    });
+    expect(result.current.onboarding.status).toBe("loading");
+
+    await act(async () => {
+      resolve({ externalRef: "5f2c1e10-..." });
+      await promise;
+    });
+
+    expect(result.current.onboarding).toEqual({
+      status: "ready",
+      data: { externalRef: "5f2c1e10-..." },
+    });
+    expect(backend.porCuit).toHaveBeenCalledWith("20301234563");
+  });
+
+  it("porCuit no toca el estado de los otros slots", async () => {
+    const backend = makeBackend();
+    const { result } = renderHook(() => useArcaCredential(backend));
+
+    await act(async () => {
+      await result.current.porCuit("20301234563");
+    });
+
+    expect(result.current.onboarding.status).toBe("ready");
     expect(result.current.csr.status).toBe("idle");
     expect(result.current.credencial.status).toBe("idle");
     expect(result.current.diagnostico.status).toBe("idle");
@@ -116,19 +155,22 @@ describe("useArcaCredential", () => {
     });
 
     expect(result.current.csr.status).toBe("ready");
+    expect(result.current.onboarding.status).toBe("idle");
     expect(result.current.credencial.status).toBe("idle");
     expect(result.current.diagnostico.status).toBe("idle");
     expect(result.current.puntosVenta.status).toBe("idle");
   });
 
-  it("reset() vuelve los 4 slots a idle", async () => {
+  it("reset() vuelve los 5 slots a idle", async () => {
     const backend = makeBackend();
     const { result } = renderHook(() => useArcaCredential(backend));
 
     await act(async () => {
+      await result.current.porCuit("20301234563");
       await result.current.generarCsr("20301234563");
       await result.current.diagnosticar();
     });
+    expect(result.current.onboarding.status).toBe("ready");
     expect(result.current.csr.status).toBe("ready");
     expect(result.current.diagnostico.status).toBe("ready");
 
@@ -136,6 +178,7 @@ describe("useArcaCredential", () => {
       result.current.reset();
     });
 
+    expect(result.current.onboarding.status).toBe("idle");
     expect(result.current.csr.status).toBe("idle");
     expect(result.current.credencial.status).toBe("idle");
     expect(result.current.diagnostico.status).toBe("idle");

@@ -21,13 +21,21 @@ ver la [doc de npm](https://docs.github.com/en/packages/working-with-a-github-pa
 `useArcaCredential` no habla HTTP directo con arca-service — recibe un `backend` que
 VOS implementás contra tu propio servidor (que a su vez le pega a arca-service,
 típicamente vía [`arca_service_client`](../arca_service_client) si tu backend es
-Python). Sin `external_ref` explícito en ningún método: tu backend ya sabe de qué org
-se trata por la sesión del usuario.
+Python). Sin `external_ref` explícito como INPUT en ningún método — ni siquiera en
+`porCuit`, que es justo el que lo resuelve: tu backend lo recibe como resultado, lo
+persiste asociado a la sesión del usuario, y de ahí en más los demás métodos ya lo dan
+por sabido.
 
 ```tsx
 import { useArcaCredential, type ArcaServiceBackend } from "@tixenre/arca-service-ui";
 
 const backend: ArcaServiceBackend = {
+  // Siempre el primer llamado: tu propio backend recibe el `external_ref`, lo persiste
+  // asociado a la sesión del usuario, y de ahí en más lo resuelve solo (ningún otro
+  // método de este contrato lo vuelve a pedir).
+  porCuit: (cuit) =>
+    fetch("/api/arca/onboarding", { method: "POST", body: JSON.stringify({ cuit }) })
+      .then((r) => r.json()),
   generarCsr: (cuit, regenerar) =>
     fetch("/api/arca/csr", { method: "POST", body: JSON.stringify({ cuit, regenerar }) })
       .then((r) => r.json()),
@@ -42,12 +50,16 @@ const backend: ArcaServiceBackend = {
 };
 
 function OnboardingWizard() {
-  const { csr, credencial, diagnostico, generarCsr, completarCredencial, reset } =
+  const { onboarding, csr, credencial, diagnostico, porCuit, generarCsr, completarCredencial, reset } =
     useArcaCredential(backend);
 
   return (
     <div>
-      {csr.status === "idle" && <button onClick={() => generarCsr("20301234563")}>Generar CSR</button>}
+      {onboarding.status === "idle" && <button onClick={() => porCuit("20301234563")}>Empezar</button>}
+      {onboarding.status === "loading" && <p>Buscando...</p>}
+      {onboarding.status === "ready" && csr.status === "idle" && (
+        <button onClick={() => generarCsr("20301234563")}>Generar CSR</button>
+      )}
       {csr.status === "loading" && <p>Generando...</p>}
       {csr.status === "ready" && <pre>{csr.data.csrPem}</pre>}
       {csr.status === "error" && <p>Error: {csr.error.message}</p>}
@@ -57,9 +69,10 @@ function OnboardingWizard() {
 }
 ```
 
-## Los 4 slots
+## Los 5 slots
 
-`csr` / `credencial` / `diagnostico` / `puntosVenta` — cada uno es independiente:
+`onboarding` / `csr` / `credencial` / `diagnostico` / `puntosVenta` — cada uno es
+independiente:
 
 ```ts
 type AsyncSlot<T> =
@@ -73,7 +86,7 @@ type AsyncSlot<T> =
 los dos caminos hacia el mismo resultado (sin cert todavía vs. con cert propio, ver
 README de `arca_service_client`).
 
-`reset()` vuelve los 4 a `idle` — e invalida cualquier llamada todavía en vuelo, para
+`reset()` vuelve los 5 a `idle` — e invalida cualquier llamada todavía en vuelo, para
 que su resolución tardía no reviva un slot que el usuario ya reseteó (ej. cerrar el
 wizard antes de que una llamada lenta termine).
 

@@ -6,6 +6,10 @@
  * arca-service a este shape antes de devolverla acá; este paquete no habla HTTP.
  */
 
+export interface OnboardingResult {
+  externalRef: string;
+}
+
 export interface GenerarCsrResult {
   csrPem: string;
   alias: string;
@@ -49,9 +53,16 @@ export interface PuntosVentaResult {
  * arca-service, típicamente vía `arca_service_client` si es Python) — mapeo 1:1 con los
  * métodos de `ArcaServiceClient`, sin `external_ref` explícito: el backend del producto
  * ya sabe de qué org se trata por la sesión del usuario, no es responsabilidad de este
- * hook resolverlo.
+ * hook resolverlo. Excepción: `porCuit`, el llamado que recién LE DA a tu backend ese
+ * `external_ref` para que lo guarde — ver su doc.
  */
 export interface ArcaServiceBackend {
+  /** Siempre el primer llamado (ver `ArcaServiceClient.por_cuit`): resuelve o crea el
+   * `Cliente` dueño de este CUIT y el vínculo de tu Plataforma con él. Tu backend
+   * persiste el `external_ref` resultante asociado a la sesión del usuario — de ahí en
+   * más ningún otro método de este contrato vuelve a necesitarlo del lado del browser. */
+  porCuit(cuit: string): Promise<OnboardingResult>;
+
   generarCsr(cuit: string, regenerar?: boolean): Promise<GenerarCsrResult>;
   completarCredencial(certPem: string, pointOfSale?: number): Promise<CredencialResult>;
   importarCredencial(
@@ -77,6 +88,11 @@ export type AsyncSlot<T> =
   | { status: "error"; error: Error };
 
 export interface UseArcaCredentialResult {
+  /** Resultado de `porCuit` — normalmente el primer slot en pasar a `ready`. Tu backend
+   * ya guardó el `external_ref` para la sesión; este slot es para que TU UI sepa que el
+   * paso terminó (mostrar el siguiente paso del wizard, etc.), no hace falta leer
+   * `.data.externalRef` para seguir usando el resto de los métodos de este hook. */
+  onboarding: AsyncSlot<OnboardingResult>;
   csr: AsyncSlot<GenerarCsrResult>;
   /** `completarCredencial` e `importarCredencial` escriben acá los dos — son los dos
    * caminos hacia el mismo resultado (ver docstring de `ArcaServiceBackend` en
@@ -85,6 +101,7 @@ export interface UseArcaCredentialResult {
   diagnostico: AsyncSlot<DiagnosticoResult>;
   puntosVenta: AsyncSlot<PuntosVentaResult>;
 
+  porCuit(cuit: string): Promise<void>;
   generarCsr(cuit: string, regenerar?: boolean): Promise<void>;
   completarCredencial(certPem: string, pointOfSale?: number): Promise<void>;
   importarCredencial(
@@ -97,7 +114,7 @@ export interface UseArcaCredentialResult {
   diagnosticar(): Promise<void>;
   listarPuntosDeVenta(): Promise<void>;
 
-  /** Vuelve los 4 slots a `idle` — e invalida cualquier llamada todavía en vuelo, para
+  /** Vuelve los 5 slots a `idle` — e invalida cualquier llamada todavía en vuelo, para
    * que su resolución tardía no pise el estado recién reseteado (ver
    * `useAsyncSlot` en useArcaCredential.ts). */
   reset(): void;
