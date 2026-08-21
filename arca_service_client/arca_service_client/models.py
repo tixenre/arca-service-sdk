@@ -516,3 +516,34 @@ class EmisionResult:
             webhook_delivered=d.get("webhook_delivered"),
             webhook_last_error=d.get("webhook_last_error", ""),
         )
+
+
+# ---------------------------------------------------------------------------
+# Response — lote (emitir_lote_comprobantes/emitir_lote_notas_credito/
+# emitir_lote_notas_debito)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LoteItemResult:
+    """Resultado de UN ítem del lote — fallo parcial, no todo-o-nada: un ítem con
+    `idempotency_key` en conflicto (409 si fuera individual) o similar no aborta a los
+    demás, así que cada uno se resuelve por separado. `ok=False` trae `error`/
+    `status_code` poblados en vez de `emision` (espejo de `LoteItemOut`)."""
+
+    idempotency_key: str
+    ok: bool
+    emision: EmisionResult | None = None
+    error: str | None = None
+    status_code: int | None = None
+
+    @staticmethod
+    def _from_json(d: dict) -> LoteItemResult:
+        emision_json = d.get("emision")
+        return LoteItemResult(
+            idempotency_key=d["idempotency_key"],
+            ok=d["ok"],
+            emision=EmisionResult._from_json(emision_json) if emision_json is not None else None,
+            error=d.get("error"),
+            status_code=d.get("status_code"),
+        )

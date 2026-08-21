@@ -37,6 +37,7 @@ from .models import (
     DiagnosticoResult,
     EmisionResult,
     GenerarCsrResult,
+    LoteItemResult,
     PersonaArca,
     PreviewResult,
     PuntosVentaResult,
@@ -230,6 +231,16 @@ class ArcaServiceClient:
         self._raise_for_status(resp)
         return PreviewResult._from_json(resp.json())
 
+    def preview_nota_debito(
+        self, external_ref: str, nota_debito: ComprobanteInput
+    ) -> PreviewResult:
+        """Igual que `preview_nota_credito` — `nota_debito.comprobante_asociado` obligatorio."""
+        resp = self._http.post(
+            f"/orgs/{external_ref}/notas-debito/preview", json=nota_debito.to_payload()
+        )
+        self._raise_for_status(resp)
+        return PreviewResult._from_json(resp.json())
+
     # ------------------------------------------------------------------
     # Emisión — asincrónica: responde `pending` de inmediato, el resultado
     # real llega por polling (`get_comprobante`) y/o webhook.
@@ -249,8 +260,69 @@ class ArcaServiceClient:
         self._raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
 
+    def emitir_nota_debito(self, external_ref: str, nota_debito: ComprobanteInput) -> EmisionResult:
+        resp = self._http.post(f"/orgs/{external_ref}/notas-debito", json=nota_debito.to_payload())
+        self._raise_for_status(resp)
+        return EmisionResult._from_json(resp.json())
+
     def get_comprobante(self, external_ref: str, idempotency_key: str) -> EmisionResult:
         resp = self._http.get(f"/orgs/{external_ref}/comprobantes/{idempotency_key}")
+        self._raise_for_status(resp)
+        return EmisionResult._from_json(resp.json())
+
+    # ------------------------------------------------------------------
+    # Lote — colapsa N comprobantes en un solo request HTTP (crear las filas
+    # es rápido, nunca toca AFIP acá tampoco: el resultado real llega igual
+    # por polling/webhook, uno por ítem). SIEMPRE 200 con el resultado de
+    # CADA ítem adentro (`LoteItemResult.ok`/`.error`) — un ítem con
+    # `idempotency_key` en conflicto o payload inválido no aborta a los
+    # demás, así que esto NUNCA levanta `IdempotencyConflictError`/
+    # `ValidationError` por un ítem puntual (sí por el lote entero: más de
+    # 200 ítems, o falta el campo — eso sigue siendo un 422 real, `_raise_for_status`
+    # lo cubre igual).
+    # ------------------------------------------------------------------
+
+    def emitir_lote_comprobantes(
+        self, external_ref: str, comprobantes: list[ComprobanteInput]
+    ) -> list[LoteItemResult]:
+        resp = self._http.post(
+            f"/orgs/{external_ref}/comprobantes/lote",
+            json={"comprobantes": [c.to_payload() for c in comprobantes]},
+        )
+        self._raise_for_status(resp)
+        return [LoteItemResult._from_json(item) for item in resp.json()]
+
+    def emitir_lote_notas_credito(
+        self, external_ref: str, notas_credito: list[ComprobanteInput]
+    ) -> list[LoteItemResult]:
+        resp = self._http.post(
+            f"/orgs/{external_ref}/notas-credito/lote",
+            json={"notas_credito": [n.to_payload() for n in notas_credito]},
+        )
+        self._raise_for_status(resp)
+        return [LoteItemResult._from_json(item) for item in resp.json()]
+
+    def emitir_lote_notas_debito(
+        self, external_ref: str, notas_debito: list[ComprobanteInput]
+    ) -> list[LoteItemResult]:
+        resp = self._http.post(
+            f"/orgs/{external_ref}/notas-debito/lote",
+            json={"notas_debito": [n.to_payload() for n in notas_debito]},
+        )
+        self._raise_for_status(resp)
+        return [LoteItemResult._from_json(item) for item in resp.json()]
+
+    # ------------------------------------------------------------------
+    # Webhooks
+    # ------------------------------------------------------------------
+
+    def reenviar_webhook(self, external_ref: str, idempotency_key: str) -> EmisionResult:
+        """Reenvío a pedido — para cuando ya se agotaron los reintentos automáticos (ver
+        `EmisionResult.webhook_delivered`/`.webhook_last_error`) o tu endpoint propio
+        estuvo caído y se perdió la notificación original."""
+        resp = self._http.post(
+            f"/orgs/{external_ref}/comprobantes/{idempotency_key}/webhook/reenviar"
+        )
         self._raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
 

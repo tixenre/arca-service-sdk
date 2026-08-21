@@ -260,6 +260,44 @@ def test_emitir_nota_credito_manda_al_endpoint_de_notas_credito(client, httpx_mo
     assert result.tipo == "NOTA_CREDITO"
 
 
+def test_preview_nota_debito(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/orgs/org-1/notas-debito/preview",
+        json={
+            "cbte_tipo": 7,
+            "cbte_letra": "B",
+            "importe_neto": "1000.00",
+            "importe_iva": "210.00",
+            "importe_total": "1210.00",
+            "importe_no_gravado": "0",
+            "importe_exento": "0",
+            "importe_tributos": "0",
+        },
+    )
+    nota = _comprobante(
+        idempotency_key="nd-1",
+        comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
+    )
+    result = client.preview_nota_debito("org-1", nota)
+    assert result.cbte_letra == "B"
+
+
+def test_emitir_nota_debito_manda_al_endpoint_de_notas_debito(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/orgs/org-1/notas-debito",
+        status_code=202,
+        json={"id": "x", "idempotency_key": "nd-1", "tipo": "NOTA_DEBITO", "estado": "pending"},
+    )
+    nota = _comprobante(
+        idempotency_key="nd-1",
+        comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
+    )
+    result = client.emitir_nota_debito("org-1", nota)
+    assert result.tipo == "NOTA_DEBITO"
+
+
 def test_get_comprobante_issued(client, httpx_mock):
     httpx_mock.add_response(
         method="GET",
@@ -309,6 +347,141 @@ def test_get_comprobante_imagen(client, httpx_mock):
         content=b"\x89PNG...",
     )
     assert client.get_comprobante_imagen("org-1", "factura-1") == b"\x89PNG..."
+
+
+# ---------------------------------------------------------------------------
+# Lote
+# ---------------------------------------------------------------------------
+
+
+def test_emitir_lote_comprobantes_manda_la_clave_comprobantes(client, httpx_mock):
+    capturado = {}
+
+    def _responder(request):
+        import json as _json
+
+        capturado["body"] = _json.loads(request.content)
+        return __import__("httpx").Response(
+            200,
+            json=[
+                {
+                    "idempotency_key": "lote-1",
+                    "ok": True,
+                    "emision": {
+                        "id": "x",
+                        "idempotency_key": "lote-1",
+                        "tipo": "FACTURA",
+                        "estado": "pending",
+                    },
+                },
+                {
+                    "idempotency_key": "lote-2",
+                    "ok": False,
+                    "error": "Ya existe un intento con esta idempotency_key pero con datos distintos",
+                    "status_code": 409,
+                },
+            ],
+        )
+
+    httpx_mock.add_callback(_responder, method="POST", url=f"{_API}/orgs/org-1/comprobantes/lote")
+
+    resultados = client.emitir_lote_comprobantes(
+        "org-1", [_comprobante(idempotency_key="lote-1"), _comprobante(idempotency_key="lote-2")]
+    )
+
+    assert capturado["body"]["comprobantes"][0]["idempotency_key"] == "lote-1"
+    assert len(capturado["body"]["comprobantes"]) == 2
+
+    assert resultados[0].ok is True
+    assert resultados[0].emision.idempotency_key == "lote-1"
+    assert resultados[1].ok is False
+    assert resultados[1].status_code == 409
+    assert resultados[1].emision is None
+
+
+def test_emitir_lote_notas_credito_manda_la_clave_notas_credito(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/orgs/org-1/notas-credito/lote",
+        json=[
+            {
+                "idempotency_key": "nc-1",
+                "ok": True,
+                "emision": {
+                    "id": "x",
+                    "idempotency_key": "nc-1",
+                    "tipo": "NOTA_CREDITO",
+                    "estado": "pending",
+                },
+            }
+        ],
+    )
+    nota = _comprobante(
+        idempotency_key="nc-1",
+        comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
+    )
+    resultados = client.emitir_lote_notas_credito("org-1", [nota])
+    assert resultados[0].emision.tipo == "NOTA_CREDITO"
+
+
+def test_emitir_lote_notas_debito_manda_la_clave_notas_debito(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/orgs/org-1/notas-debito/lote",
+        json=[
+            {
+                "idempotency_key": "nd-1",
+                "ok": True,
+                "emision": {
+                    "id": "x",
+                    "idempotency_key": "nd-1",
+                    "tipo": "NOTA_DEBITO",
+                    "estado": "pending",
+                },
+            }
+        ],
+    )
+    nota = _comprobante(
+        idempotency_key="nd-1",
+        comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
+    )
+    resultados = client.emitir_lote_notas_debito("org-1", [nota])
+    assert resultados[0].emision.tipo == "NOTA_DEBITO"
+
+
+def test_emitir_lote_comprobantes_mas_de_200_items_levanta_validation_error(client, httpx_mock):
+    # El lote entero (no un ítem puntual) SÍ puede fallar — ahí el 422 real
+    # de _raise_for_status aplica, distinto del ok:false por-ítem de arriba.
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/orgs/org-1/comprobantes/lote",
+        status_code=422,
+        json={"detail": "El lote admite hasta 200 items (recibidos: 201)."},
+    )
+    with pytest.raises(ValidationError, match="200 items"):
+        client.emitir_lote_comprobantes("org-1", [_comprobante()])
+
+
+# ---------------------------------------------------------------------------
+# Webhooks
+# ---------------------------------------------------------------------------
+
+
+def test_reenviar_webhook(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/orgs/org-1/comprobantes/factura-1/webhook/reenviar",
+        status_code=202,
+        json={
+            "id": "x",
+            "idempotency_key": "factura-1",
+            "tipo": "FACTURA",
+            "estado": "issued",
+            "webhook_delivered": True,
+        },
+    )
+    result = client.reenviar_webhook("org-1", "factura-1")
+    assert result.webhook_delivered is True
 
 
 # ---------------------------------------------------------------------------
