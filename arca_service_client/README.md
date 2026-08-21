@@ -11,6 +11,17 @@ Cliente HTTP oficial para [arca-service](https://github.com/tixenre/arca-service
 pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@arca-service-client-vX.Y.Z#subdirectory=arca_service_client"
 ```
 
+## Antes de empezar: conseguir `client_cert_path`/`client_key_path`/`api_key`
+
+Este README asume que ya tenés los tres — son la identidad de TU producto
+como integrador (ganche/inmo/rambla/...), no la credencial AFIP de ninguna
+org particular (eso es un paso aparte, ver "Onboarding de una credencial"
+más abajo). Conseguirlos hoy es un paso manual que hace un operador de
+arca-service, no self-serve: ver el checklist completo (creación del
+`Client`, emisión del certificado mTLS, generación de la API key) en
+[`SECURITY.md`](https://github.com/tixenre/arca-service/blob/main/SECURITY.md#2-checklist-de-onboarding-de-un-client-nuevo)
+del repo de arca-service, sección 2.
+
 ## Uso
 
 ```python
