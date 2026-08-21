@@ -1,6 +1,10 @@
 [project]
 name = "arca-service-client"
-version = "0.1.0"
+# Arranca en 0.0.1 (no 0.1.0) — mismo criterio que arca_fe/pyproject.toml: SemVer real
+# recién cuando el contrato público se estabilice con uso real, no por haber escrito
+# código. NO se bumpea en cada commit — solo cuando cambia la superficie pública
+# (__all__) de forma que un consumidor necesite enterarse.
+version = "0.0.1"
 description = "Cliente HTTP oficial para arca-service (facturación electrónica ARCA/AFIP) — mTLS + API key, sin depender de Django/Celery/saas-core."
 readme = "README.md"
 requires-python = ">=3.9"
