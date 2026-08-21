@@ -1,0 +1,66 @@
+[project]
+name = "arca-service-client"
+version = "0.1.0"
+description = "Cliente HTTP oficial para arca-service (facturación electrónica ARCA/AFIP) — mTLS + API key, sin depender de Django/Celery/saas-core."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+
+# Core mínimo a propósito, mismo criterio que arca_fe/pyproject.toml: quien consume esto
+# no debería arrastrar Django/Celery/saas-core solo para hablar HTTP con arca-service.
+# httpx: transporte (soporta mTLS vía `cert=(cert_path, key_path)` nativamente, a
+# diferencia de `requests`, que necesita un adapter propio para eso). cryptography:
+# solo la usa `crypto.py::seal()` (RSA-OAEP + AES-256-GCM, puerto exacto de
+# `saas_core.envelope.seal()` — ver ese módulo para el porqué del esquema).
+dependencies = [
+    "httpx>=0.27",
+    "cryptography",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-httpx>=0.30",
+    "ruff",
+    "black",
+    "mypy",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+# Mismo truco que arca_fe/pyproject.toml (vive en tixenre/arca-service): este
+# pyproject.toml está DENTRO del paquete que describe. `where=[".."]` le dice a
+# setuptools que busque un nivel arriba (la raíz del repo) y `include` filtra para
+# quedarse solo con este paquete, no con `arca_service_ui/` (JS, sin esto ni
+# aplicaría) que vive al lado.
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["arca_service_client*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+# Sin esto, mypy sigue el import de httpx (que trae `py.typed`) hasta adentro de
+# httpx/_main.py (su CLI opcional, no algo que este paquete use) y de ahí a `click` —
+# cuyo código fuente usa `match` (sintaxis 3.10+) y explota al PARSEAR bajo
+# python_version=3.9 de acá arriba ("silent" no alcanza: sigue parseando el módulo
+# aunque calle sus errores; "skip" no lo abre en absoluto). Estándar para consumir una
+# librería tipada sin quedar expuesto a la sintaxis/versión de Python de SUS internals.
+follow_imports = "skip"

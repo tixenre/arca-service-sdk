@@ -1,0 +1,26 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Corre también sobre cualquier tag de versión — última red antes de que un
+  # integrador pueda instalar ese tag, aunque ya haya sido pusheado.
+  create:
+
+jobs:
+  arca-service-client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: arca_service_client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: black --check .
+      - run: mypy arca_service_client
+      - run: python -m pytest -v
