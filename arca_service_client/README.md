@@ -21,13 +21,34 @@ pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-s
 Este README asume que ya tenés los tres — son la identidad de TU Plataforma
 como integrador (ganche/inmo/rambla/...), no la credencial AFIP de ningún
 Cliente particular (eso es un paso aparte, ver "Onboarding de una credencial"
-más abajo). Conseguirlos hoy es un paso manual que hace un operador de
-arca-service, no self-serve: ver el checklist completo (creación de la
-Plataforma, emisión del certificado mTLS, generación de la API key) en
-[`SECURITY.md`](https://github.com/tixenre/arca-service/blob/main/SECURITY.md#2-checklist-de-onboarding-de-un-client-nuevo)
-del repo de arca-service, sección 2 (el anchor sigue diciendo "Client" — es el
-nombre que Django, todavía corriendo en paralelo, le da al mismo concepto;
-ver la nota de terminología al principio de esa sección).
+más abajo). Conseguirlos hoy es un paso manual, hecho por quien administra
+arca-service — no self-serve todavía, pero autocontenido: no hace falta
+acceso al repo de arca-service (privado) para completarlo, alcanza con lo
+que sigue.
+
+1. **Crear la `Plataforma`**: `mix arca.create_plataforma --name "Rambla" --slug rambla`
+   — crea la `Plataforma` Y su primera `ApiKey` en un solo comando; la
+   `ApiKey` se imprime ahí mismo, en texto plano, **una sola vez** (si se
+   pierde no se recupera — hay que generar una nueva con
+   `ArcaServicePhx.Plataformas.create_api_key/2` desde `iex -S mix`, sin
+   perder la anterior).
+2. **Emitir un certificado cliente mTLS** desde la CA de Cloudflare
+   configurada en la zona de arca-service (dashboard de Cloudflare →
+   SSL/TLS → Client Certificates → Create Client Certificate), con
+   `CN=<slug>.arca-service` (ej. `CN=rambla.arca-service`) — mismo `slug`
+   que el paso 1, para que la relación cert↔Plataforma sea legible a
+   simple vista. Cloudflare genera el par clave/certificado ahí mismo; la
+   clave privada se descarga **una sola vez** — si se pierde, hay que
+   emitir un certificado nuevo (y revocar el viejo). Es el par que carga
+   `client_cert_path`/`client_key_path`.
+3. **(Opcional) Webhook**: `mix arca.rotate_webhook_secret --slug rambla`
+   genera el secret para verificar la firma de cada webhook entrante (ver
+   "Verificar la firma de un webhook" más abajo) — mismo criterio, texto
+   plano una sola vez.
+
+Guardá los tres en un gestor de secretos compartido (nunca en un archivo
+commiteado ni en un log) y entregáselos a quien vaya a cargarlos en
+`ArcaServiceClient(client_cert_path=..., client_key_path=..., api_key=...)`.
 
 ## Uso
 
