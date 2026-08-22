@@ -122,22 +122,37 @@ def _login(args: argparse.Namespace) -> int:
         print(f"El signup falló ({resp.status_code}): {_detail(resp)}", file=sys.stderr)
         return 1
 
-    data = resp.json()
-    cert_pem = data["mtls_certificate_pem"]
-    # data["mtls_private_key_pem"] es null -- mandamos csr_pem, arca-service nunca
-    # tuvo esa clave (ver SECURITY.md de arca-service). La nuestra es key_pem, de acá
-    # arriba; nunca viajó a ningún lado.
+    try:
+        data = resp.json()
+        cert_pem = data["mtls_certificate_pem"]
+        # data["mtls_private_key_pem"] es null -- mandamos csr_pem, arca-service nunca
+        # tuvo esa clave (ver SECURITY.md de arca-service). La nuestra es key_pem, de acá
+        # arriba; nunca viajó a ningún lado.
 
-    profile = Profile(
-        base_url=base_url,
-        api_key=data["api_key"],
-        # save_profile completa las rutas reales al escribir los archivos.
-        client_cert_path="",
-        client_key_path="",
-        plataforma_slug=data["slug"],
-        cert_not_after=_cert_not_after(cert_pem),
-    )
-    save_profile(args.profile, profile, cert_pem=cert_pem, key_pem=key_pem)
+        profile = Profile(
+            base_url=base_url,
+            api_key=data["api_key"],
+            # save_profile completa las rutas reales al escribir los archivos.
+            client_cert_path="",
+            client_key_path="",
+            plataforma_slug=data["slug"],
+            cert_not_after=_cert_not_after(cert_pem),
+        )
+        save_profile(args.profile, profile, cert_pem=cert_pem, key_pem=key_pem)
+    except (ValueError, KeyError, TypeError) as exc:
+        # 201 no garantiza que el body tenga la forma que esperamos -- esto
+        # sería un bug del lado de arca-service, no algo que el usuario hizo
+        # mal (a diferencia del camino de status != 201 de arriba, que sí es
+        # esperable y ya tiene su propio manejo). ValueError cubre tanto JSON
+        # inválido (resp.json()) como un PEM de certificado malformado
+        # (_cert_not_after); KeyError/TypeError, un campo faltante o un body
+        # que ni siquiera es un dict.
+        print(
+            f"El signup respondió 201 pero con datos inesperados ({exc!r}) -- "
+            f"esto sería un bug de arca-service, no tuyo. Respuesta cruda: {resp.text}",
+            file=sys.stderr,
+        )
+        return 1
 
     print(f"Listo -- Plataforma {data['slug']!r} guardada como perfil {args.profile!r}.")
     print(f"Configuración en: {config_dir()}")

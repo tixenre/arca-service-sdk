@@ -157,6 +157,45 @@ def test_login_signup_rechazado_no_guarda_nada(isolated_config_dir, httpx_mock):
         load_profile("default")
 
 
+def test_login_201_con_campo_faltante_no_revienta_ni_guarda_nada(
+    isolated_config_dir, httpx_mock, capsys
+):
+    # 201 pero sin api_key/mtls_certificate_pem -- bug del lado de
+    # arca-service, no algo que el usuario hizo mal. Antes de este fix esto
+    # reventaba con un KeyError crudo en vez de un error prolijo (ver cli.py).
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_URL,
+        status_code=201,
+        json={"plataforma_id": "abc-123", "slug": "rambla"},
+    )
+
+    exit_code = cli.main(_login_args())
+
+    assert exit_code == 1
+    assert "inesperados" in capsys.readouterr().err
+    with pytest.raises(CredentialsNotFoundError):
+        load_profile("default")
+
+
+def test_login_201_con_body_no_json_no_revienta_ni_guarda_nada(
+    isolated_config_dir, httpx_mock, capsys
+):
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_URL,
+        status_code=201,
+        content=b"esto no es json",
+    )
+
+    exit_code = cli.main(_login_args())
+
+    assert exit_code == 1
+    assert "inesperados" in capsys.readouterr().err
+    with pytest.raises(CredentialsNotFoundError):
+        load_profile("default")
+
+
 def test_login_sin_aceptar_tos_no_llama_a_la_red(monkeypatch, isolated_config_dir, httpx_mock):
     monkeypatch.setattr("builtins.input", lambda *_args: "n")  # no acepta el prompt de ToS
     argv = [
