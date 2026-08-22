@@ -13,6 +13,16 @@ través de varias Plataformas distintas con UNA sola credencial AFIP compartida.
 ## Instalación
 
 ```
+pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@main#subdirectory=arca_service_client"
+```
+
+Todavía no hay ningún tag `arca-service-client-vX.Y.Z` publicado -- `@main`
+es lo que de verdad instala hoy (probado en un venv limpio: import,
+`__version__`, y el CLI completo). Apenas exista un tag, preferirlo a
+`@main` para fijar una versión reproducible en vez de seguir la punta de
+la rama:
+
+```
 pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@arca-service-client-vX.Y.Z#subdirectory=arca_service_client"
 ```
 

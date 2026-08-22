@@ -15,8 +15,10 @@ pública; lo único sensible es la clave PRIVADA de cada integrador, que nunca v
   `httpx`) + CLI (`arca-service-client login`/`whoami`, mismo patrón que `stripe login`/
   `gh auth login`: self-serve, credenciales guardadas solas, nunca un PEM a mano).
   Instalable vía
-  `pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@arca-service-client-vX.Y.Z#subdirectory=arca_service_client"`.
-  Ver su propio README para la guía completa.
+  `pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@main#subdirectory=arca_service_client"`
+  (todavía sin ningún tag publicado -- ver el README del paquete para el
+  comando con tag, a preferir apenas exista uno). Ver su propio README
+  para la guía completa.
 - **[`arca_service_ui/`](arca_service_ui/)** — hook React headless
   (`@tixenre/arca-service-ui`) para el flujo de onboarding de credencial. Publicado a
   GitHub Packages en cada tag `arca-service-ui-vX.Y.Z`. Ver su propio README.
