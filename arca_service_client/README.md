@@ -28,6 +28,26 @@ pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-s
 
 ## Antes de empezar: conseguir tus credenciales
 
+### Sin invite todavía: `arca-service-client request-invite`
+
+Si nadie te pasó un invite code todavía, no hace falta que se lo pidas por
+otro canal (Slack, mail) — este mismo CLI lo dispara:
+
+```
+arca-service-client request-invite --base-url https://arca.tudominio.com
+```
+
+Sin flags te va a preguntar nombre/slug/email de contacto de forma
+interactiva (o pasalos con `--name`/`--slug`/`--contact-email`/`--message`).
+Público, sin auth, sin nada criptográfico — a diferencia de `login`, esto no
+genera ningún par de claves ni guarda nada en disco: solo le avisa a quien
+administra arca-service que alguien quiere entrar. **No hay respuesta
+automática** — un operador la revisa a mano y te entrega el invite real por
+un canal seguro (nunca por acá, y no hay forma de saber cuánto tarda). Este
+paso se documenta acá y no solo del lado de arca-service porque ese repo es
+privado — `arca-service-sdk` es lo único público que un integrador nuevo
+puede leer sin acceso a nada interno.
+
 ### Self-serve (recomendado): `arca-service-client login`
 
 Este paquete YA ES el CLI (mismo `pip install` de arriba, sin nada extra) —
@@ -40,11 +60,11 @@ arca-service-client login --base-url https://arca.tudominio.com --invite <códig
 ```
 
 El invite code te lo entrega quien administra arca-service (`mix arca.crear_invite_signup`,
-de un solo uso y con vencimiento) por un canal seguro — es lo único que
-necesitás pedir. `login` genera tu par RSA + CSR **en tu propia máquina** (la
-clave privada nunca sale de ahí, ni un instante — arca-service solo recibe
-el CSR, información pública) y guarda todo en `~/.config/arca-service/`
-(`chmod 0600`). De ahí en más:
+de un solo uso y con vencimiento) por un canal seguro — pedilo con
+`request-invite` de arriba si todavía no tenés uno. `login` genera tu par RSA
++ CSR **en tu propia máquina** (la clave privada nunca sale de ahí, ni un
+instante — arca-service solo recibe el CSR, información pública) y guarda
+todo en `~/.config/arca-service/` (`chmod 0600`). De ahí en más:
 
 ```python
 from arca_service_client import ArcaServiceClient

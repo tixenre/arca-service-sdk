@@ -1,8 +1,16 @@
-"""arca_service_client.cli -- `arca-service-client login`/`whoami`, mismo patrón que
-`stripe login`/`gh auth login`/`aws configure`: un comando, credenciales guardadas
-solas -- de ahí en más tu código de app nunca vuelve a tocar un PEM a mano (ver
-`local_config.py` para el porqué y el formato del perfil guardado). Entry point
-declarado en `pyproject.toml` (`[project.scripts]`).
+"""arca_service_client.cli -- `arca-service-client request-invite`/`login`/`whoami`,
+mismo patrón que `stripe login`/`gh auth login`/`aws configure`: un comando,
+credenciales guardadas solas -- de ahí en más tu código de app nunca vuelve a tocar un
+PEM a mano (ver `local_config.py` para el porqué y el formato del perfil guardado).
+Entry point declarado en `pyproject.toml` (`[project.scripts]`).
+
+`request-invite` es el paso ANTERIOR a `login`, para quien todavía no tiene un invite
+code: pega contra `POST /api/v1/signup-requests` (público, sin auth, sin nada
+criptográfico) y queda ahí -- un operador de arca-service la revisa a mano y entrega el
+invite real por otro canal, no hay ninguna respuesta automática (ver SECURITY.md de
+arca-service). Documentado ACÁ, no solo del lado de arca-service, porque ese repo es
+privado -- este (`arca-service-sdk`) es el único contrato público que un integrador
+como vos puede leer sin acceso a nada interno.
 
 Deliberadamente sobre `httpx` crudo acá, no sobre `ArcaServiceClient` -- ese
 constructor ya asume mTLS/api_key en mano, que es justo lo que `login` todavía no
@@ -43,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    if args.command == "request-invite":
+        return _request_invite(args)
     if args.command == "login":
         return _login(args)
     if args.command == "whoami":
@@ -56,6 +66,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="arca-service-client")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
+
+    request_invite = sub.add_parser(
+        "request-invite",
+        help="Sin invite todavía -- pedí acceso, un operador lo revisa y te contacta",
+    )
+    request_invite.add_argument(
+        "--base-url", help="Ej. https://arca.tudominio.com (o env ARCA_SERVICE_BASE_URL)"
+    )
+    request_invite.add_argument("--name", help='Nombre de tu Plataforma (ej. "Rambla")')
+    request_invite.add_argument("--slug", help='Identificador estable (ej. "rambla")')
+    request_invite.add_argument("--contact-email")
+    request_invite.add_argument(
+        "--message", default="", help="Contexto opcional para quien revisa (para qué lo vas a usar)"
+    )
 
     login = sub.add_parser(
         "login",
@@ -79,6 +103,58 @@ def _build_parser() -> argparse.ArgumentParser:
     whoami.add_argument("--profile", default=DEFAULT_PROFILE)
 
     return parser
+
+
+def _request_invite(args: argparse.Namespace) -> int:
+    """`POST /api/v1/signup-requests` -- a diferencia de `_login`, sin invite, sin
+    Authorization, y sin nada que guardar en disco: esto solo dispara una fila
+    `pending` del lado de arca-service. `.get()` en vez de `data["..."]` al leer la
+    respuesta -- no hay ningún secreto acá que perder por degradar en vez de reventar
+    si el body viniera incompleto (a diferencia de `_login`, ver su propio manejo)."""
+    base_url = args.base_url or os.environ.get("ARCA_SERVICE_BASE_URL")
+    if not base_url:
+        print(
+            "Falta --base-url (o la variable de entorno ARCA_SERVICE_BASE_URL).",
+            file=sys.stderr,
+        )
+        return 1
+
+    name = args.name or input('Nombre de tu Plataforma (ej. "Rambla"): ').strip()
+    slug = args.slug or input('Slug, identificador estable (ej. "rambla"): ').strip()
+    contact_email = args.contact_email or input("Email de contacto: ").strip()
+
+    try:
+        resp = httpx.post(
+            f"{base_url.rstrip('/')}/api/v1/signup-requests",
+            json={
+                "name": name,
+                "slug": slug,
+                "contact_email": contact_email,
+                "message": args.message,
+            },
+            timeout=30.0,
+        )
+    except httpx.HTTPError as exc:
+        print(f"No se pudo contactar a {base_url}: {exc}", file=sys.stderr)
+        return 1
+
+    if resp.status_code != 201:
+        print(f"El pedido falló ({resp.status_code}): {_detail(resp)}", file=sys.stderr)
+        return 1
+
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+
+    print(f"Solicitud recibida (id={data.get('id', '?')}).")
+    print(
+        data.get(
+            "mensaje",
+            "Un operador la va a revisar -- avisá si no tenés noticias en unos días.",
+        )
+    )
+    return 0
 
 
 def _login(args: argparse.Namespace) -> int:

@@ -15,6 +15,7 @@ from arca_service_client.local_config import CredentialsNotFoundError, load_prof
 
 _BASE_URL = "https://arca.test"
 _SIGNUP_URL = f"{_BASE_URL}/api/v1/signup"
+_SIGNUP_REQUESTS_URL = f"{_BASE_URL}/api/v1/signup-requests"
 
 
 def _login_args(**overrides):
@@ -46,6 +47,114 @@ def _mock_signup_ok(httpx_mock, cert_pem, *, slug="rambla"):
             "mensaje": "...",
         },
     )
+
+
+def _request_invite_args(**overrides):
+    args = {
+        "--base-url": _BASE_URL,
+        "--name": "Rambla",
+        "--slug": "rambla",
+        "--contact-email": "dev@rambla.house",
+    }
+    args.update(overrides)
+    argv = ["request-invite"]
+    for flag, value in args.items():
+        argv.extend([flag, value])
+    return argv
+
+
+def test_request_invite_feliz_imprime_lo_que_devuelve_el_server(httpx_mock, capsys):
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_REQUESTS_URL,
+        status_code=201,
+        json={"id": "req-123", "name": "Rambla", "slug": "rambla", "mensaje": "Recibido."},
+    )
+
+    assert cli.main(_request_invite_args()) == 0
+
+    salida = capsys.readouterr().out
+    assert "req-123" in salida
+    assert "Recibido." in salida
+
+
+def test_request_invite_no_manda_ningun_authorization(httpx_mock):
+    # A diferencia de login (Bearer <invite>) -- pedir el invite no puede exigir ya
+    # tenerlo.
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_REQUESTS_URL,
+        status_code=201,
+        json={"id": "req-123"},
+    )
+
+    cli.main(_request_invite_args())
+
+    [request] = httpx_mock.get_requests()
+    assert "authorization" not in {h.lower() for h in request.headers.keys()}
+
+
+def test_request_invite_rechazado_por_el_server_falla_claro(httpx_mock, capsys):
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_REQUESTS_URL,
+        status_code=422,
+        json={"detail": "contact_email: no es un email válido"},
+    )
+
+    exit_code = cli.main(_request_invite_args(**{"--contact-email": "no-es-un-email"}))
+
+    assert exit_code == 1
+    assert "no es un email válido" in capsys.readouterr().err
+
+
+def test_request_invite_sin_base_url_ni_env_var_falla_claro(monkeypatch, capsys):
+    monkeypatch.delenv("ARCA_SERVICE_BASE_URL", raising=False)
+
+    argv = ["request-invite", "--name", "n", "--slug", "s", "--contact-email", "e@e.com"]
+
+    assert cli.main(argv) == 1
+    assert "base-url" in capsys.readouterr().err.lower()
+
+
+def test_request_invite_prompts_interactivos_cuando_faltan_flags(monkeypatch, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_REQUESTS_URL,
+        status_code=201,
+        json={"id": "req-456"},
+    )
+
+    respuestas = iter(["Ganche", "ganche", "dev@ganche.com"])
+    monkeypatch.setattr("builtins.input", lambda *_args: next(respuestas))
+
+    exit_code = cli.main(["request-invite", "--base-url", _BASE_URL])
+
+    assert exit_code == 0
+    [request] = httpx_mock.get_requests()
+    body = json.loads(request.content)
+    assert body == {
+        "name": "Ganche",
+        "slug": "ganche",
+        "contact_email": "dev@ganche.com",
+        "message": "",
+    }
+
+
+def test_request_invite_201_con_body_no_json_no_revienta(httpx_mock, capsys):
+    # Mismo espíritu que el fix de _login para datos inesperados en un 201 -- acá no
+    # hay ningún secreto que guardar, así que alcanza con degradar en vez de reventar.
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_REQUESTS_URL,
+        status_code=201,
+        content=b"esto no es json",
+    )
+
+    exit_code = cli.main(_request_invite_args())
+
+    assert exit_code == 0
+    assert "id=?" in capsys.readouterr().out
 
 
 def test_login_feliz_guarda_el_perfil(isolated_config_dir, client_cert_pem, httpx_mock):
