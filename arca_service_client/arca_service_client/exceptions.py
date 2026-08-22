@@ -1,11 +1,10 @@
 """arca_service_client.exceptions — un tipo por código de status HTTP (y, para el 409,
 también por SIGNIFICADO DE NEGOCIO — ver `BonificadoLimiteError`) que arca-service puede
-devolver (ver `lib/arca_service_phx_web/controllers/fallback_controller.ex` de
-tixenre/arca-service: todo error pasa por ahí y sale como `{"detail": "..."}`, siempre
-string plano — nunca una lista de objetos ni un shape distinto según el error).
-`ArcaServiceError` es la base común: quien solo necesita `except ArcaServiceError` para
-"algo salió mal" no tiene que conocer cada subtipo; quien sí necesita discriminar
-(reintentar un 429/502, no reintentar un 422) puede."""
+devolver. Todo error sale como `{"detail": "..."}`, siempre string plano — nunca una
+lista de objetos ni un shape distinto según el error. `ArcaServiceError` es la base
+común: quien solo necesita `except ArcaServiceError` para "algo salió mal" no tiene que
+conocer cada subtipo; quien sí necesita discriminar (reintentar un 429/502, no
+reintentar un 422) puede."""
 
 from __future__ import annotations
 
@@ -31,17 +30,17 @@ class ArcaServiceError(Exception):
 
 class NotFoundError(ArcaServiceError):
     """404 — el recurso pedido (comprobante, credencial) no existe para este Cliente, o el
-    `external_ref` mismo no existe / tu Plataforma no está autorizada contra él (ver
-    `ArcaServicePhxWeb.Plugs.ResolveCliente` — deliberadamente el mismo 404 genérico para
-    los dos casos, para no filtrarle a un caller no autorizado si un `external_ref`
-    existe o no)."""
+    `external_ref` mismo no existe / tu Plataforma no está autorizada contra él --
+    deliberadamente el mismo 404 genérico para los dos casos, para no filtrarle a un
+    caller no autorizado si un `external_ref` existe o no."""
 
 
 class IdempotencyConflictError(ArcaServiceError):
     """409 — ya existe un intento con esa `idempotency_key` pero con datos DISTINTOS.
     Elegí una key nueva si es una emisión genuinamente distinta; si es un reintento de la
-    MISMA emisión con el MISMO payload, esto no debería pasar (ver INTEGRATION.md de
-    arca-service sobre cómo construir una `idempotency_key` determinística).
+    MISMA emisión con el MISMO payload, esto no debería pasar -- construila
+    determinística a partir de algo estable de tu propio dominio (ej. el id de la orden
+    o factura en tu sistema), nunca de un valor random generado en cada intento.
 
     NO es el tipo que levanta `set_bonificado` en su propio 409 — ver
     `BonificadoLimiteError`, un conflicto de negocio totalmente distinto que
@@ -55,10 +54,9 @@ class ValidationError(ArcaServiceError):
 
 
 class RateLimitedError(ArcaServiceError):
-    """429 — se excedió el límite de requests por Plataforma (ver
-    `lib/arca_service_phx_web/plugs/rate_limit.ex` de arca-service). `retry_after`:
-    segundos a esperar antes de reintentar (header `Retry-After`, ya redondeado hacia
-    arriba por el servidor) — `None` si el servidor no lo mandó."""
+    """429 — se excedió el límite de requests por Plataforma. `retry_after`: segundos a
+    esperar antes de reintentar (header `Retry-After`, ya redondeado hacia arriba por el
+    servidor) — `None` si el servidor no lo mandó."""
 
     def __init__(
         self,
@@ -92,9 +90,8 @@ class ArcaServiceServerError(ArcaServiceError):
 
 class BonificadoLimiteError(ArcaServiceError):
     """409 — `ArcaServiceClient.set_bonificado(external_ref, True)` chocó contra el
-    circuit-breaker de seguridad de tu Plataforma (`Plataforma.bonificado_limite_seguridad`
-    del lado de arca-service, default 0 -- fail-closed hasta que un operador de
-    arca-service negocie un límite real y lo suba a mano). NO es un error tuyo ni del
-    Cliente: pedile a arca-service que revise/suba el límite. Desactivar
+    circuit-breaker de seguridad de tu Plataforma (0 por default -- fail-closed hasta
+    que un operador de arca-service negocie un límite real y lo suba a mano). NO es un
+    error tuyo ni del Cliente: pedile a arca-service que revise/suba el límite. Desactivar
     (`set_bonificado(external_ref, False)`) nunca choca contra esto -- solo activar un
     vínculo nuevo cuenta contra el límite."""

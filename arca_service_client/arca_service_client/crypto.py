@@ -1,11 +1,11 @@
 """arca_service_client.crypto — sellado de payloads sensibles para
 `POST /clientes/{external_ref}/credencial/importar`.
 
-Puerto EXACTO de `seal()` de `saas_core.envelope` (tixenre/saas-core) — SOLO esa función:
-`unseal()` no hace falta acá (eso lo corre arca-service del lado de adentro, con su
-clave privada, que este paquete nunca ve). No se importa `saas_core` como dependencia
-a propósito — arrastraría Django y el resto del paquete, para una sola función pura de
-20 líneas que no necesita nada de eso.
+Cifrado híbrido RSA-OAEP + AES-256-GCM contra la clave pública vigente de arca-service
+-- `unseal()` no hace falta acá (eso lo corre arca-service del lado de adentro, con su
+clave privada, que este paquete nunca ve). Implementación propia, autocontenida (sin
+dependencias más allá de `cryptography`) -- es una sola función pura, no justifica
+arrastrar un paquete entero para eso.
 
 Por qué hace falta ESTO además de mTLS/TLS: la clave privada AFIP del contribuyente es
 el dato más sensible que este flujo mueve — sellarla en el body (cifrado híbrido
@@ -41,10 +41,9 @@ class EnvelopeError(RuntimeError):
 def seal(plaintext: bytes, recipient_public_key_pem: bytes) -> dict[str, str]:
     """Cifra `plaintext` para que SOLO arca-service (dueño de la privada correspondiente
     a `recipient_public_key_pem`, obtenida de `GET /envelope/clave-publica`) lo pueda
-    leer. Devuelve un dict de strings base64 — mismo shape que
-    `lib/arca_service_phx_web/schemas/sealed_payload.ex` de arca-service (`v`/`ek`/`n`/
-    `ct`), directamente JSON-serializable para el campo `sealed` de
-    `ImportarCredencialIn`."""
+    leer. Devuelve un dict de strings base64 (`v`/`ek`/`n`/`ct`) — el shape exacto que
+    espera el campo `sealed` del body de `POST /clientes/{external_ref}/credencial/importar`,
+    directamente JSON-serializable."""
     try:
         public_key = serialization.load_pem_public_key(recipient_public_key_pem)
     except Exception as exc:

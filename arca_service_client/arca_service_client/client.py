@@ -1,20 +1,16 @@
 """arca_service_client.client — `ArcaServiceClient`, envoltorio fino sobre la API HTTP
-de arca-service (tixenre/arca-service, stack Phoenix -- `arca_service_phx/`). Un método
-por endpoint, verificado contra `lib/arca_service_phx_web/router.ex`/
-`lib/arca_service_phx_web/controllers/*.ex`/`lib/arca_service_phx_web/schemas/*.ex`
-reales de ese repo — no una capa de abstracción propia encima, para que quien lea el
-router de Phoenix reconozca 1:1 cada llamada de acá.
+de arca-service. Un método por endpoint — no una capa de abstracción propia encima,
+para que cada llamada de acá mapee 1:1 a un endpoint real de la API.
 
-Modelo Cliente/Plataforma (Fase 12 de arca-service): `external_ref` identifica un
-`Cliente` (el CUIT/CUIL dueño real de la facturación) — nunca lo elegís vos, lo devuelve
-`por_cuit()` la primera vez que onboardeás un CUIT. Todo lo demás en este cliente
-(emisión, preview, credencial, etc.) actúa DESDE tu Plataforma SOBRE ese Cliente.
+Modelo Cliente/Plataforma: `external_ref` identifica un `Cliente` (el CUIT/CUIL dueño
+real de la facturación) — nunca lo elegís vos, lo devuelve `por_cuit()` la primera vez
+que onboardeás un CUIT. Todo lo demás en este cliente (emisión, preview, credencial,
+etc.) actúa DESDE tu Plataforma SOBRE ese Cliente.
 
 Auth: mTLS (certificado propio de tu Plataforma como integrador, emitido por la CA mTLS
-de Cloudflare que arca-service exige delante — ver
-`lib/arca_service_phx_web/plugs/plataforma_auth.ex` de ese repo) + API key como Bearer
-token. Las dos son obligatorias del lado servidor; sin el cert mTLS la request ni
-siquiera llega a la capa de auth de la API key."""
+que arca-service exige delante) + API key como Bearer token. Las dos son obligatorias
+del lado servidor; sin el cert mTLS la request ni siquiera llega a la capa de auth de
+la API key."""
 
 from __future__ import annotations
 
@@ -58,7 +54,7 @@ from .models import (
 )
 
 _TIMEOUT_SECONDS_DEFAULT = 30.0
-LAYOUT_DEFAULT = "oficial"  # mismo default que `ArcaServicePhx.Arca.Render.layout_default/0`
+LAYOUT_DEFAULT = "oficial"  # mismo default que usa el servidor si no se manda `layout`
 
 
 @dataclass
@@ -69,10 +65,9 @@ class ArcaServiceClient:
     integrador.
 
     `client_cert_path`/`client_key_path`: rutas al certificado y clave privada de
-    cliente para mTLS — el par que la CA mTLS de Cloudflare delante de arca-service
-    emitió para TU Plataforma como integrador (ganche/inmo/rambla/...), no el
-    certificado AFIP de ningún Cliente particular (ese es interno de arca-service,
-    nunca sale de ahí).
+    cliente para mTLS — el par que la CA mTLS delante de arca-service emitió para TU
+    Plataforma como integrador, no el certificado AFIP de ningún Cliente particular (ese
+    es interno de arca-service, nunca sale de ahí).
 
     `api_key`: la API key de tu `Plataforma` en arca-service (Bearer token) — identifica
     QUIÉN sos, el mTLS ya identificó QUE SOS VOS.
@@ -145,14 +140,13 @@ class ArcaServiceClient:
         self.close()
 
     # ------------------------------------------------------------------
-    # Cliente — onboarding por CUIT + vínculo con tu Plataforma (Fase 12).
+    # Cliente — onboarding por CUIT + vínculo con tu Plataforma.
     # SIEMPRE el primer llamado: todo lo demás necesita el `external_ref`
     # que devuelve `por_cuit`.
     # ------------------------------------------------------------------
 
     def por_cuit(self, cuit: str) -> OnboardingResult:
-        """Idempotente en dos sentidos (ver
-        `ArcaServicePhx.Clientes.get_or_create_por_cuit/2`): un CUIT nuevo crea el
+        """Idempotente en dos sentidos: un CUIT nuevo crea el
         `Cliente`; uno ya onboardeado por OTRA Plataforma se reusa, creando (o
         reactivando) solo TU vínculo con él — nunca un segundo `Cliente` para el mismo
         CUIT. Llamalo de nuevo con el mismo CUIT las veces que haga falta: nunca duplica
@@ -177,10 +171,8 @@ class ArcaServiceClient:
 
     # ------------------------------------------------------------------
     # Onboarding de credencial — dos caminos hacia una credencial AFIP para
-    # un Cliente ya onboardeado (ver
-    # `lib/arca_service_phx_web/controllers/credencial_controller.ex` en
-    # arca-service): sin cert todavía, `generar_csr` + `completar_credencial`;
-    # con cert+clave propios, `importar_credencial`.
+    # un Cliente ya onboardeado: sin cert todavía, `generar_csr` +
+    # `completar_credencial`; con cert+clave propios, `importar_credencial`.
     # ------------------------------------------------------------------
 
     def generar_csr(
@@ -482,13 +474,12 @@ def _raise_for_status(
 
 
 def _extraer_detail(resp: httpx.Response) -> str:
-    """El body de error de arca-service siempre es `{"detail": "string"}` (ver
-    `lib/arca_service_phx_web/controllers/fallback_controller.ex` de ese repo -- todo
-    error pasa por ahí, INCLUSO un changeset de Ecto inválido, que por default trae
-    errores por campo; arca-service lo aplana a un único string antes de responder). Si
-    algún día no lo fuera (respuesta corrupta, proxy intermedio devolviendo HTML de
-    error), no rompe acá — cae al texto crudo en vez de un `KeyError`/`JSONDecodeError`
-    que ocultaría el error real detrás de OTRO error."""
+    """El body de error de arca-service siempre es `{"detail": "string"}` -- incluso
+    cuando el error real es una validación con errores por campo, arca-service lo
+    aplana a un único string antes de responder. Si algún día no lo fuera (respuesta
+    corrupta, proxy intermedio devolviendo HTML de error), no rompe acá — cae al texto
+    crudo en vez de un `KeyError`/`JSONDecodeError` que ocultaría el error real detrás
+    de OTRO error."""
     try:
         data = resp.json()
         if isinstance(data, dict) and "detail" in data:

@@ -1,8 +1,8 @@
 """arca_service_client.async_client — `AsyncArcaServiceClient`, la MISMA API que
 `ArcaServiceClient` (`client.py`) sobre `httpx.AsyncClient` en vez de `httpx.Client` —
-para un consumidor async nativo (ej. FastAPI/rambla.house, que ya envuelve `arca_fe` con
-`asyncio.to_thread` para no bloquear su event loop; un cliente HTTP async de verdad le
-evita esa vuelta). Mismos métodos, mismos nombres, mismo shape de retorno — la única
+para un consumidor async nativo (ej. FastAPI), sin tener que envolver un cliente sync
+en `asyncio.to_thread` para no bloquear el event loop. Mismos métodos, mismos nombres,
+mismo shape de retorno — la única
 diferencia es `async def`/`await` en cada uno. El mapeo de errores
 (`_raise_for_status`, ver `client.py`) es una función de módulo compartida entre los dos:
 no hay NADA async-específico en decidir qué excepción tirar según el status code.
@@ -111,7 +111,7 @@ class AsyncArcaServiceClient:
         await self.aclose()
 
     # ------------------------------------------------------------------
-    # Cliente — onboarding por CUIT + vínculo con tu Plataforma (Fase 12).
+    # Cliente — onboarding por CUIT + vínculo con tu Plataforma.
     # ------------------------------------------------------------------
 
     async def por_cuit(self, cuit: str) -> OnboardingResult:

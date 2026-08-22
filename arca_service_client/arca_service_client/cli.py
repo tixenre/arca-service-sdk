@@ -7,22 +7,18 @@ Entry point declarado en `pyproject.toml` (`[project.scripts]`).
 `request-invite` es el paso ANTERIOR a `login`, para quien todavía no tiene un invite
 code: pega contra `POST /api/v1/signup-requests` (público, sin auth, sin nada
 criptográfico) y queda ahí -- un operador de arca-service la revisa a mano y entrega el
-invite real por otro canal, no hay ninguna respuesta automática (ver SECURITY.md de
-arca-service). Documentado ACÁ, no solo del lado de arca-service, porque ese repo es
-privado -- este (`arca-service-sdk`) es el único contrato público que un integrador
-como vos puede leer sin acceso a nada interno.
+invite real por otro canal; no hay ninguna respuesta automática.
 
 Deliberadamente sobre `httpx` crudo acá, no sobre `ArcaServiceClient` -- ese
 constructor ya asume mTLS/api_key en mano, que es justo lo que `login` todavía no
-tiene (el signup en sí solo pide el invite code, sin mTLS -- ver
-`ArcaServicePhxWeb.Plugs.SignupInviteAuth` del lado de arca-service).
+tiene (el signup en sí solo pide el invite code, sin mTLS).
 
 `login` genera el par RSA + CSR ACÁ, del lado cliente, y manda solo el CSR (`csr_pem`,
 información pública) en el `POST /signup` -- arca-service lo valida y lo firma, nunca
-ve la clave privada, ni un instante (ver SECURITY.md/`ArcaServicePhx.Mtls` moduledoc de
-arca-service). Más correcto técnicamente que la alternativa (que el server genere el
-par y te lo mande una vez) -- y que `arca-service` ya soporta las dos, así que no hay
-ningún motivo para que el camino "profesional" (este CLI) use la menos buena."""
+ve la clave privada, ni un instante. Más correcto técnicamente que la alternativa (que
+el server genere el par y te lo mande una vez) -- y que `arca-service` ya soporta las
+dos, así que no hay ningún motivo para que el camino "profesional" (este CLI) use la
+menos buena."""
 
 from __future__ import annotations
 
@@ -74,8 +70,8 @@ def _build_parser() -> argparse.ArgumentParser:
     request_invite.add_argument(
         "--base-url", help="Ej. https://arca.tudominio.com (o env ARCA_SERVICE_BASE_URL)"
     )
-    request_invite.add_argument("--name", help='Nombre de tu Plataforma (ej. "Rambla")')
-    request_invite.add_argument("--slug", help='Identificador estable (ej. "rambla")')
+    request_invite.add_argument("--name", help='Nombre de tu Plataforma (ej. "Mi Plataforma")')
+    request_invite.add_argument("--slug", help='Identificador estable (ej. "mi-plataforma")')
     request_invite.add_argument("--contact-email")
     request_invite.add_argument(
         "--message", default="", help="Contexto opcional para quien revisa (para qué lo vas a usar)"
@@ -89,8 +85,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--base-url", help="Ej. https://arca.tudominio.com (o env ARCA_SERVICE_BASE_URL)"
     )
     login.add_argument("--invite", required=True, help="Invite code, entregado por un canal seguro")
-    login.add_argument("--name", help='Nombre de tu Plataforma (ej. "Rambla")')
-    login.add_argument("--slug", help='Identificador estable (ej. "rambla")')
+    login.add_argument("--name", help='Nombre de tu Plataforma (ej. "Mi Plataforma")')
+    login.add_argument("--slug", help='Identificador estable (ej. "mi-plataforma")')
     login.add_argument("--contact-email")
     login.add_argument("--profile", default=DEFAULT_PROFILE)
     login.add_argument(
@@ -119,8 +115,8 @@ def _request_invite(args: argparse.Namespace) -> int:
         )
         return 1
 
-    name = args.name or input('Nombre de tu Plataforma (ej. "Rambla"): ').strip()
-    slug = args.slug or input('Slug, identificador estable (ej. "rambla"): ').strip()
+    name = args.name or input('Nombre de tu Plataforma (ej. "Mi Plataforma"): ').strip()
+    slug = args.slug or input('Slug, identificador estable (ej. "mi-plataforma"): ').strip()
     contact_email = args.contact_email or input("Email de contacto: ").strip()
 
     try:
@@ -166,8 +162,8 @@ def _login(args: argparse.Namespace) -> int:
         )
         return 1
 
-    name = args.name or input('Nombre de tu Plataforma (ej. "Rambla"): ').strip()
-    slug = args.slug or input('Slug, identificador estable (ej. "rambla"): ').strip()
+    name = args.name or input('Nombre de tu Plataforma (ej. "Mi Plataforma"): ').strip()
+    slug = args.slug or input('Slug, identificador estable (ej. "mi-plataforma"): ').strip()
     contact_email = args.contact_email or input("Email de contacto: ").strip()
 
     if not args.yes and not _confirm("¿Aceptás los términos de uso de arca-service? [y/N] "):
@@ -202,8 +198,7 @@ def _login(args: argparse.Namespace) -> int:
         data = resp.json()
         cert_pem = data["mtls_certificate_pem"]
         # data["mtls_private_key_pem"] es null -- mandamos csr_pem, arca-service nunca
-        # tuvo esa clave (ver SECURITY.md de arca-service). La nuestra es key_pem, de acá
-        # arriba; nunca viajó a ningún lado.
+        # tuvo esa clave. La nuestra es key_pem, de acá arriba; nunca viajó a ningún lado.
 
         profile = Profile(
             base_url=base_url,

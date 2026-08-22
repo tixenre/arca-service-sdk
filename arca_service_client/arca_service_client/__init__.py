@@ -4,8 +4,8 @@
 
     client = ArcaServiceClient(
         base_url="https://arca.tudominio.com",
-        client_cert_path="/etc/ganche/arca-client.crt",
-        client_key_path="/etc/ganche/arca-client.key",
+        client_cert_path="/etc/mi-plataforma/arca-client.crt",
+        client_key_path="/etc/mi-plataforma/arca-client.key",
         api_key="...",
     )
 
@@ -28,13 +28,12 @@
         ),
     )
 
-Sin dependencia de Django/Celery/saas-core/arca_fe a propósito — solo `httpx` (mTLS
-nativo vía `cert=(cert, key)`) y `cryptography` (`crypto.seal`, para
-`importar_credencial`). Ver README.md para la guía completa (onboarding, idempotencia,
-webhooks).
+Sin dependencias pesadas a propósito — solo `httpx` (mTLS nativo vía `cert=(cert,
+key)`) y `cryptography` (`crypto.seal`, para `importar_credencial`). Ver README.md para
+la guía completa (onboarding, idempotencia, webhooks).
 
-¿Consumidor async (FastAPI/rambla.house)? `AsyncArcaServiceClient` (`async_client.py`)
-es la misma API con `async def`/`await` en cada método, sobre `httpx.AsyncClient`."""
+¿Consumidor async (FastAPI)? `AsyncArcaServiceClient` (`async_client.py`) es la misma
+API con `async def`/`await` en cada método, sobre `httpx.AsyncClient`."""
 
 from __future__ import annotations
 

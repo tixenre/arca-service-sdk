@@ -7,9 +7,9 @@ lee solo de ahí después.
 Deliberadamente NO pensado para producción -- un container no tiene "tu" home
 directory, y no debería depender de que alguien haya corrido `login` a mano ahí. En
 producción seguí pasando `base_url`/`client_cert_path`/`client_key_path`/`api_key`
-explícitos (env vars, tu secret manager) — exactamente como ya se documentaba antes de
-que este módulo existiera. Este archivo resuelve la fricción de "tengo que arrancar a
-desarrollar contra arca-service ahora mismo", no cambia nada del contrato de producción.
+explícitos (env vars, tu secret manager). Este archivo resuelve la fricción de "tengo
+que arrancar a desarrollar contra arca-service ahora mismo", no cambia nada del
+contrato de producción.
 
 Formato: un directorio (`~/.config/arca-service`, respetando `XDG_CONFIG_HOME` si está
 seteado) con `credentials.json` (metadata + RUTAS a cert/key, nunca el PEM en sí) más un

@@ -1,14 +1,13 @@
 # arca-service-client
 
 Cliente HTTP oficial para [arca-service](https://github.com/tixenre/arca-service)
-(facturación electrónica ARCA/AFIP) — mTLS + API key, sin depender de Django, Celery ni
-`saas-core`. Un método por endpoint, verificado contra el router/controllers/schemas
-reales de Phoenix (`arca_service_phx/`) en ese repo.
+(facturación electrónica ARCA/AFIP) — mTLS + API key, sin dependencias pesadas (nada de
+frameworks web ni colas de tareas). Un método por endpoint, uno a uno con la API real.
 
 Modelo Cliente/Plataforma: `Cliente` es el CUIT/CUIL dueño real de la facturación;
-`Plataforma` sos VOS, el integrador (ganche/inmo/rambla/...) — identidad puramente
-técnica, sin relación de billing con arca-service. Un mismo Cliente puede operar a
-través de varias Plataformas distintas con UNA sola credencial AFIP compartida.
+`Plataforma` sos VOS, el integrador — identidad puramente técnica, sin relación de
+billing con arca-service. Un mismo Cliente puede operar a través de varias Plataformas
+distintas con UNA sola credencial AFIP compartida.
 
 ## Instalación
 
@@ -59,12 +58,11 @@ PEM a mano.
 arca-service-client login --base-url https://arca.tudominio.com --invite <código>
 ```
 
-El invite code te lo entrega quien administra arca-service (`mix arca.crear_invite_signup`,
-de un solo uso y con vencimiento) por un canal seguro — pedilo con
-`request-invite` de arriba si todavía no tenés uno. `login` genera tu par RSA
-+ CSR **en tu propia máquina** (la clave privada nunca sale de ahí, ni un
-instante — arca-service solo recibe el CSR, información pública) y guarda
-todo en `~/.config/arca-service/` (`chmod 0600`). De ahí en más:
+El invite code te lo entrega quien administra arca-service por un canal seguro — es de
+un solo uso y vence, así que pedilo con `request-invite` de arriba si todavía no tenés
+uno vigente. `login` genera tu par RSA + CSR **en tu propia máquina** (la clave privada
+nunca sale de ahí, ni un instante — arca-service solo recibe el CSR, información
+pública) y guarda todo en `~/.config/arca-service/` (`chmod 0600`). De ahí en más:
 
 ```python
 from arca_service_client import ArcaServiceClient
@@ -81,20 +79,18 @@ vence tu certificado.
 `~/.config`) seguís pasando los cuatro explícitos — env vars, tu secret
 manager — como se documenta más abajo.
 
-### Manual (alternativa, `mix arca.*` del lado de arca-service)
+### Manual (alternativa)
 
-Sigue existiendo para quien administra arca-service y prefiere darte de alta
-a mano en vez de mandarte un invite code — ver el checklist de onboarding en
-`SECURITY.md` de ese repo (`mix arca.create_plataforma` + certificado mTLS +
-`mix arca.rotate_webhook_secret`). El resultado es el mismo trío
+Quien administra arca-service también puede darte de alta a mano en vez de
+mandarte un invite code. El resultado es el mismo trío
 (`client_cert_path`/`client_key_path`/`api_key`) que `login` guarda solo;
 con este camino los recibís vos a mano y los pasás explícitos:
 
 ```python
 client = ArcaServiceClient(
     base_url="https://arca.tudominio.com",
-    client_cert_path="/etc/ganche/arca-client.crt",
-    client_key_path="/etc/ganche/arca-client.key",
+    client_cert_path="/etc/mi-plataforma/arca-client.crt",
+    client_key_path="/etc/mi-plataforma/arca-client.key",
     api_key="...",
 )
 ```
@@ -119,8 +115,8 @@ from arca_service_client import (
 
 client = ArcaServiceClient(
     base_url="https://arca.tudominio.com",
-    client_cert_path="/etc/ganche/arca-client.crt",
-    client_key_path="/etc/ganche/arca-client.key",
+    client_cert_path="/etc/mi-plataforma/arca-client.crt",
+    client_key_path="/etc/mi-plataforma/arca-client.key",
     api_key="...",
 )
 
@@ -168,8 +164,8 @@ from arca_service_client import AsyncArcaServiceClient
 async def facturar(cuit: str, comprobante: ComprobanteInput):
     async with AsyncArcaServiceClient(
         base_url="https://arca.tudominio.com",
-        client_cert_path="/etc/rambla/arca-client.crt",
-        client_key_path="/etc/rambla/arca-client.key",
+        client_cert_path="/etc/mi-plataforma/arca-client.crt",
+        client_key_path="/etc/mi-plataforma/arca-client.key",
         api_key="...",
     ) as client:
         onboarding = await client.por_cuit(cuit)
@@ -194,7 +190,7 @@ para ese CUIT: guardalo vos, no hace falta re-onboardear en cada request.
 ## Bonificación cruzada: `set_bonificado`
 
 Si tu Plataforma tiene un acuerdo con arca-service (ej. un plan propio que ya incluye
-facturación, tipo "Ganche Pro"), `set_bonificado(external_ref, True)` exime a ESE
+facturación), `set_bonificado(external_ref, True)` exime a ESE
 Cliente, usado A TRAVÉS de TU Plataforma, de pagar su propia suscripción — no afecta su
 vínculo con ninguna otra Plataforma. Activar un vínculo nuevo está sujeto a un límite de
 seguridad configurado del lado de arca-service (`BonificadoLimiteError`, 409, ver

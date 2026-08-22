@@ -1,13 +1,12 @@
-"""arca_service_client.models — dataclasses de request/response, espejo exacto de
-`lib/arca_service_phx_web/schemas/*.ex` (tixenre/arca-service, stack Phoenix). Los de
-REQUEST (`ComprobanteInput` y sus componentes) saben serializarse a sí mismos
-(`to_payload()`) al shape JSON que la API
-espera — Decimal -> string (nunca un `float` crudo: evita sorpresas de representación
-binaria en un monto), `date` -> ISO. Los de RESPONSE (`EmisionResult`, `PersonaArca`,
-etc.) tienen un `_from_json` que parsea el dict que devuelve `response.json()` — nunca
-levantan por un campo extra que la API agregue después (`dict.get`), sí levantan
-`KeyError` por uno FALTANTE que el schema real marca como obligatorio (fail loud, no
-fabricar un default para un campo que se supone que siempre viene)."""
+"""arca_service_client.models — dataclasses de request/response, espejo exacto del
+contrato JSON real de la API. Los de REQUEST (`ComprobanteInput` y sus componentes)
+saben serializarse a sí mismos (`to_payload()`) al shape JSON que la API espera —
+Decimal -> string (nunca un `float` crudo: evita sorpresas de representación binaria en
+un monto), `date` -> ISO. Los de RESPONSE (`EmisionResult`, `PersonaArca`, etc.) tienen
+un `_from_json` que parsea el dict que devuelve `response.json()` — nunca levantan por
+un campo extra que la API agregue después (`dict.get`), sí levantan `KeyError` por uno
+FALTANTE que el schema real marca como obligatorio (fail loud, no fabricar un default
+para un campo que se supone que siempre viene)."""
 
 from __future__ import annotations
 
@@ -46,8 +45,7 @@ def _fecha_hora(v: Any) -> datetime | None:
 
 @dataclass
 class ItemIva:
-    """Desglose de neto por alícuota — ver
-    `lib/arca_service_phx_web/schemas/item_iva_in.ex`. `alicuota_id`: id de
+    """Desglose de neto por alícuota. `alicuota_id`: id de
     `arca_service_client.enums.Alicuota`."""
 
     alicuota_id: int
@@ -223,7 +221,7 @@ class ComprobanteInput:
 
 
 # ---------------------------------------------------------------------------
-# Response — Cliente (onboarding por CUIT + vínculo, Fase 12)
+# Response — Cliente (onboarding por CUIT + vínculo)
 # ---------------------------------------------------------------------------
 
 

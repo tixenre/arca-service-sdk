@@ -1,16 +1,13 @@
 """arca_service_client.webhooks — verificación de la firma de un webhook de arca-service.
 
-Puerto EXACTO del esquema de firma de
-`lib/arca_service_phx/workers/entregar_webhook.ex` (tixenre/arca-service, stack Phoenix):
-HMAC-SHA256 con `Plataforma.webhook_secret` sobre `timestamp.encode() + b"." + body` — el
-timestamp entra DENTRO del material firmado, no alcanza con concatenarlo del lado del
-integrador. Ver SECURITY.md de arca-service:
-"Verificar la firma HMAC-SHA256 de cada webhook... antes de procesar el payload — un
-webhook sin verificar es indistinguible de uno falsificado por cualquiera que conozca la
-URL", y "Rechazar un webhook cuyo X-Arca-Timestamp esté fuera de una ventana de
-tolerancia razonable (recomendado: 5 minutos) — protección de replay: sin este chequeo,
-un webhook legítimo capturado en tránsito se puede reenviar más tarde y la firma sigue
-verificando OK, porque el HMAC por sí solo no expira."."""
+HMAC-SHA256 con el `webhook_secret` de tu Plataforma sobre `timestamp.encode() + b"." +
+body` — el timestamp entra DENTRO del material firmado, no alcanza con concatenarlo del
+lado del integrador. Verificar la firma SIEMPRE antes de procesar el payload -- un
+webhook sin verificar es indistinguible de uno falsificado por cualquiera que conozca
+la URL. También rechazar cualquier `X-Arca-Timestamp` fuera de una ventana de tolerancia
+razonable (default acá: 5 minutos) — protección de replay: sin este chequeo, un webhook
+legítimo capturado en tránsito se puede reenviar más tarde y la firma sigue verificando
+OK, porque el HMAC por sí solo no expira."""
 
 from __future__ import annotations
 
@@ -18,7 +15,7 @@ import hashlib
 import hmac
 import time
 
-_TOLERANCE_SECONDS_DEFAULT = 300  # 5 minutos — mismo valor que recomienda SECURITY.md
+_TOLERANCE_SECONDS_DEFAULT = 300  # 5 minutos
 
 
 def verify_webhook_signature(

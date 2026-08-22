@@ -1,8 +1,8 @@
 # arca-service-sdk
 
 Clientes oficiales para integrar [arca-service](https://github.com/tixenre/arca-service)
-(facturación electrónica ARCA/AFIP) — para que ganche/inmo/rambla/futuros integradores
-no armen cada uno su propio wrapper HTTP sobre la misma API.
+(facturación electrónica ARCA/AFIP) — para que cada integrador no arme su propio wrapper
+HTTP sobre la misma API.
 
 Repo público (a diferencia de `arca-service`, que sigue privado): estos paquetes son el
 CONTRATO hacia afuera, no exponen ningún dato ni lógica interna de ese servicio — ni
@@ -24,9 +24,8 @@ pública; lo único sensible es la clave PRIVADA de cada integrador, que nunca v
   GitHub Packages en cada tag `arca-service-ui-vX.Y.Z`. Ver su propio README.
 
 Cada paquete versiona y publica por separado (tags `arca-service-client-vX.Y.Z` /
-`arca-service-ui-vX.Y.Z`) — mismo criterio que `saas_core`/`site_builder` en
-`tixenre/saas-core`: viven en el mismo repo por conveniencia de desarrollo, pero son
-dependencias independientes para quien los consume.
+`arca-service-ui-vX.Y.Z`): viven en el mismo repo por conveniencia de desarrollo, pero
+son dependencias independientes para quien los consume.
 
 ## Licencia
 

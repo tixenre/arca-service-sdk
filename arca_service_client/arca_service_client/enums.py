@@ -1,12 +1,11 @@
-"""arca_service_client.enums — códigos de AFIP tal cual los define `arca_fe.modelos`
-(tixenre/arca-service). Portados a mano, NO reinventados: son los mismos valores enteros
-que ese motor usa para armar los payloads y que arca-service devuelve en sus respuestas —
-un mismatch acá sería un bug silencioso (ej. mandar `receptor_condicion_iva=4` pensando
-que es Consumidor Final cuando en realidad es Exento).
+"""arca_service_client.enums — códigos tal cual los define AFIP. Portados a mano, NO
+reinventados: son los mismos valores enteros que arca-service espera en el payload y
+devuelve en sus respuestas — un mismatch acá sería un bug silencioso (ej. mandar
+`receptor_condicion_iva=4` pensando que es Consumidor Final cuando en realidad es
+Exento).
 
-Si `arca_fe.modelos` agrega un valor nuevo, este archivo se actualiza a mano — no hay
-forma de importarlo directo (arca_fe no es una dependencia de este paquete, a propósito:
-arrastraría zeep/cryptography/Django-adyacentes que un integrador HTTP puro no necesita)."""
+Mantenidos a mano, no importados de una dependencia -- evita arrastrar librerías
+pesadas (SOAP/XML, criptografía) que un integrador HTTP puro no necesita."""
 
 from __future__ import annotations
 
@@ -72,9 +71,8 @@ class CbteTipo(IntEnum):
 
 class Alicuota(IntEnum):
     """Id de alícuota de IVA (tabla AFIP `FEParamGetTiposIva`) — para
-    `ComprobanteInput.alicuota_unica`/`ItemIva.alicuota_id`. A diferencia de
-    `arca_fe.modelos.AlicuotaIva` (que empareja id+porcentaje en un dataclass), acá alcanza
-    con el id: el porcentaje lo resuelve arca-service, este paquete no calcula IVA."""
+    `ComprobanteInput.alicuota_unica`/`ItemIva.alicuota_id`. Alcanza con el id: el
+    porcentaje lo resuelve arca-service, este paquete no calcula IVA."""
 
     IVA_0 = 3  # exento/no gravado dentro de un comprobante con IVA discriminado
     IVA_10_5 = 4
