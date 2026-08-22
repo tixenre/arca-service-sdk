@@ -223,3 +223,71 @@ def test_persona_arca_from_json_con_actividades_y_domicilio_fiscal():
     assert persona.actividades[0].descripcion == "Software"
     assert persona.domicilio_fiscal.localidad == "CABA"
     assert persona.fecha_contrato_social == datetime(2020, 1, 1)
+
+
+# ---------------------------------------------------------------------------
+# Serialización canónica de Decimal — que la API nunca vea una forma ambigua
+# ---------------------------------------------------------------------------
+
+
+def test_decimal_ambiguo_se_serializa_sin_ambiguedad():
+    """`str(Decimal("1.234"))` da "1.234", que como string suelto tiene dos
+    lecturas (1234 con punto de miles, o 1.234 decimal) y la API rechaza a
+    propósito. El SDK tiene que emitir una forma que conserve el valor exacto
+    sin heredar esa ambigüedad."""
+    payload = _comprobante_minimo(cotizacion=Decimal("1.234"), moneda="DOL").to_payload()
+
+    assert payload["cotizacion"] == "1.2340"
+    assert Decimal(payload["cotizacion"]) == Decimal("1.234")
+
+
+def test_decimal_normalizado_no_sale_en_notacion_cientifica():
+    """`str(Decimal("100").normalize())` da "1E+2". La API lo entiende, pero el
+    SDK manda decimales planos igual: lo que viaja tiene que ser legible y no
+    depender de que el otro lado acepte una forma exótica."""
+    payload = _comprobante_minimo(importe_neto=Decimal("100").normalize()).to_payload()
+
+    assert payload["importe_neto"] == "100"
+
+
+def test_decimales_no_ambiguos_no_se_tocan():
+    payload = _comprobante_minimo(
+        importe_neto=Decimal("1294.32"), cotizacion=Decimal("1050.5678"), moneda="DOL"
+    ).to_payload()
+
+    assert payload["importe_neto"] == "1294.32"
+    assert payload["cotizacion"] == "1050.5678"
+
+
+def test_serializacion_canonica_tambien_en_los_anidados():
+    payload = _comprobante_minimo(
+        items_iva=[ItemIva(alicuota_id=5, base_imponible=Decimal("1.234"))],
+        tributos=[
+            Tributo(
+                id=99,
+                base_imponible=Decimal("1.234"),
+                alicuota_pct=Decimal("1.5"),
+                importe=Decimal("0.02"),
+                desc="Percepción",
+            )
+        ],
+        items=[
+            ItemFactura(
+                descripcion="algo",
+                precio_unitario=Decimal("1.234"),
+                subtotal=Decimal("1.234"),
+            )
+        ],
+    ).to_payload()
+
+    assert payload["items_iva"][0]["base_imponible"] == "1.2340"
+    assert payload["tributos"][0]["base_imponible"] == "1.2340"
+    assert payload["items"][0]["precio_unitario"] == "1.2340"
+    assert payload["items"][0]["subtotal"] == "1.2340"
+
+
+def test_negativo_ambiguo_tambien_se_desambigua():
+    payload = _comprobante_minimo(importe_neto=Decimal("-1.234")).to_payload()
+
+    assert payload["importe_neto"] == "-1.2340"
+    assert Decimal(payload["importe_neto"]) == Decimal("-1.234")

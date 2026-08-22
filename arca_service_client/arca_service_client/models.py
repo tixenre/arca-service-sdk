@@ -11,6 +11,7 @@ fabricar un default para un campo que se supone que siempre viene)."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -19,6 +20,40 @@ from typing import Any
 
 def _dec(v: Any) -> Decimal:
     return v if isinstance(v, Decimal) else Decimal(str(v))
+
+
+# Un separador seguido de EXACTAMENTE 3 dígitos, con 1 a 3 dígitos adelante
+# ("1.234"): la única forma de escribir un número que tiene dos lecturas
+# posibles -- "mil doscientos treinta y cuatro" (separador de miles, la
+# convención argentina de todos los días) o "uno coma dos tres cuatro"
+# (separador decimal). La API rechaza esa forma a propósito: las dos lecturas
+# difieren por 1000x, y adivinar mal significa emitir una factura por el monto
+# equivocado.
+_AMBIGUO_RE = re.compile(r"^-?\d{1,3}[.,]\d{3}$")
+
+
+def _dec_str(valor: Decimal) -> str:
+    """Serializa un `Decimal` a la forma canónica que la API acepta siempre.
+
+    Acá está la razón de que este helper exista en vez de un `str()` pelado: el
+    TIPO ya deja clara la intención del caller (un `Decimal("1.234")` en Python
+    es inequívocamente uno coma dos tres cuatro), pero `str()` la PIERDE al
+    serializar -- produce `"1.234"`, que como string suelto vuelve a tener dos
+    lecturas y la API rechaza. Un cero al final conserva el valor exacto y
+    elimina la ambigüedad.
+
+    `format(valor, "f")` en vez de `str(valor)` por un motivo parecido:
+    `str(Decimal("100").normalize())` da `"1E+2"`. La API entiende notación
+    científica, pero no hay razón para mandarla -- el SDK emite siempre
+    decimales planos, así lo que viaja es legible y no depende de que el otro
+    lado acepte una forma exótica.
+
+    El principio general: el SDK NO repite las reglas de negocio de AFIP (esas
+    cambian con cada RG y por eso viven en un solo lugar, el servicio); lo que
+    sí hace es que la forma incorrecta no se pueda ni expresar.
+    """
+    texto = format(valor, "f")
+    return texto + "0" if _AMBIGUO_RE.match(texto) else texto
 
 
 def _fecha(v: Any) -> date | None:
@@ -54,7 +89,10 @@ class ItemIva:
     base_imponible: Decimal
 
     def _to_dict(self) -> dict:
-        return {"alicuota_id": int(self.alicuota_id), "base_imponible": str(self.base_imponible)}
+        return {
+            "alicuota_id": int(self.alicuota_id),
+            "base_imponible": _dec_str(self.base_imponible),
+        }
 
 
 @dataclass
@@ -71,9 +109,9 @@ class Tributo:
     def _to_dict(self) -> dict:
         return {
             "id": self.id,
-            "base_imponible": str(self.base_imponible),
-            "alicuota_pct": str(self.alicuota_pct),
-            "importe": str(self.importe),
+            "base_imponible": _dec_str(self.base_imponible),
+            "alicuota_pct": _dec_str(self.alicuota_pct),
+            "importe": _dec_str(self.importe),
             "desc": self.desc,
         }
 
@@ -107,12 +145,12 @@ class ItemFactura:
     def _to_dict(self) -> dict:
         return {
             "descripcion": self.descripcion,
-            "precio_unitario": str(self.precio_unitario),
-            "subtotal": str(self.subtotal),
+            "precio_unitario": _dec_str(self.precio_unitario),
+            "subtotal": _dec_str(self.subtotal),
             "codigo": self.codigo,
-            "cantidad": str(self.cantidad),
+            "cantidad": _dec_str(self.cantidad),
             "unidad_medida": self.unidad_medida,
-            "bonificacion_pct": str(self.bonificacion_pct),
+            "bonificacion_pct": _dec_str(self.bonificacion_pct),
             "detalle": self.detalle,
         }
 
@@ -190,10 +228,10 @@ class ComprobanteInput:
             "receptor_condicion_iva": int(self.receptor_condicion_iva),
             "fecha": self.fecha.isoformat(),
             "moneda": self.moneda,
-            "cotizacion": str(self.cotizacion),
-            "importe_neto": str(self.importe_neto),
-            "importe_no_gravado": str(self.importe_no_gravado),
-            "importe_exento": str(self.importe_exento),
+            "cotizacion": _dec_str(self.cotizacion),
+            "importe_neto": _dec_str(self.importe_neto),
+            "importe_no_gravado": _dec_str(self.importe_no_gravado),
+            "importe_exento": _dec_str(self.importe_exento),
             "items_iva": [i._to_dict() for i in self.items_iva],
             "tributos": [t._to_dict() for t in self.tributos],
             "opcionales": [o._to_dict() for o in self.opcionales],

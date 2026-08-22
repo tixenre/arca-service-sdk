@@ -86,7 +86,7 @@ from .models import (
 from .validadores import cuit_valido, formatear_cuit, normalizar_cuit
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 
 __all__ = [
     "__version__",
