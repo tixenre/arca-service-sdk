@@ -1,3 +1,4 @@
+export { cuitValido, formatearCuit, normalizarCuit } from "./cuit";
 export { useArcaCredential } from "./useArcaCredential";
 export type {
   ArcaServiceBackend,

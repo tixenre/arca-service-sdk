@@ -83,9 +83,10 @@ from .models import (
     Regimen,
     Tributo,
 )
+from .validadores import cuit_valido, formatear_cuit, normalizar_cuit
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 __all__ = [
     "__version__",
@@ -130,6 +131,10 @@ __all__ = [
     # envelope (importar_credencial)
     "EnvelopeError",
     "seal",
+    # CUIT (validación LOCAL, sin red -- ver validadores.py)
+    "cuit_valido",
+    "formatear_cuit",
+    "normalizar_cuit",
     # webhooks
     "verify_webhook_signature",
     # errores
