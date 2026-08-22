@@ -16,39 +16,61 @@ través de varias Plataformas distintas con UNA sola credencial AFIP compartida.
 pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@arca-service-client-vX.Y.Z#subdirectory=arca_service_client"
 ```
 
-## Antes de empezar: conseguir `client_cert_path`/`client_key_path`/`api_key`
+## Antes de empezar: conseguir tus credenciales
 
-Este README asume que ya tenés los tres — son la identidad de TU Plataforma
-como integrador (ganche/inmo/rambla/...), no la credencial AFIP de ningún
-Cliente particular (eso es un paso aparte, ver "Onboarding de una credencial"
-más abajo). Conseguirlos hoy es un paso manual, hecho por quien administra
-arca-service — no self-serve todavía, pero autocontenido: no hace falta
-acceso al repo de arca-service (privado) para completarlo, alcanza con lo
-que sigue.
+### Self-serve (recomendado): `arca-service-client login`
 
-1. **Crear la `Plataforma`**: `mix arca.create_plataforma --name "Rambla" --slug rambla`
-   — crea la `Plataforma` Y su primera `ApiKey` en un solo comando; la
-   `ApiKey` se imprime ahí mismo, en texto plano, **una sola vez** (si se
-   pierde no se recupera — hay que generar una nueva con
-   `ArcaServicePhx.Plataformas.create_api_key/2` desde `iex -S mix`, sin
-   perder la anterior).
-2. **Emitir un certificado cliente mTLS** desde la CA de Cloudflare
-   configurada en la zona de arca-service (dashboard de Cloudflare →
-   SSL/TLS → Client Certificates → Create Client Certificate), con
-   `CN=<slug>.arca-service` (ej. `CN=rambla.arca-service`) — mismo `slug`
-   que el paso 1, para que la relación cert↔Plataforma sea legible a
-   simple vista. Cloudflare genera el par clave/certificado ahí mismo; la
-   clave privada se descarga **una sola vez** — si se pierde, hay que
-   emitir un certificado nuevo (y revocar el viejo). Es el par que carga
-   `client_cert_path`/`client_key_path`.
-3. **(Opcional) Webhook**: `mix arca.rotate_webhook_secret --slug rambla`
-   genera el secret para verificar la firma de cada webhook entrante (ver
-   "Verificar la firma de un webhook" más abajo) — mismo criterio, texto
-   plano una sola vez.
+Este paquete YA ES el CLI (mismo `pip install` de arriba, sin nada extra) —
+mismo patrón que `stripe login`/`gh auth login`/`aws configure`: un comando,
+las credenciales quedan guardadas solas, tu código nunca vuelve a tocar un
+PEM a mano.
 
-Guardá los tres en un gestor de secretos compartido (nunca en un archivo
-commiteado ni en un log) y entregáselos a quien vaya a cargarlos en
-`ArcaServiceClient(client_cert_path=..., client_key_path=..., api_key=...)`.
+```
+arca-service-client login --base-url https://arca.tudominio.com --invite <código>
+```
+
+El invite code te lo entrega quien administra arca-service (`mix arca.crear_invite_signup`,
+de un solo uso y con vencimiento) por un canal seguro — es lo único que
+necesitás pedir. `login` genera tu par RSA + CSR **en tu propia máquina** (la
+clave privada nunca sale de ahí, ni un instante — arca-service solo recibe
+el CSR, información pública) y guarda todo en `~/.config/arca-service/`
+(`chmod 0600`). De ahí en más:
+
+```python
+from arca_service_client import ArcaServiceClient
+
+client = ArcaServiceClient()  # sin argumentos -- lee el perfil que guardó login
+```
+
+`--profile <nombre>` en `login`/`ArcaServiceClient(profile=...)` si necesitás
+más de una identidad guardada (ej. dos Plataformas, o distintos ambientes).
+`arca-service-client whoami` te muestra qué perfil tenés activo y cuándo
+vence tu certificado.
+
+**Esto es para desarrollo local.** En producción (un container no tiene "tu"
+`~/.config`) seguís pasando los cuatro explícitos — env vars, tu secret
+manager — como se documenta más abajo.
+
+### Manual (alternativa, `mix arca.*` del lado de arca-service)
+
+Sigue existiendo para quien administra arca-service y prefiere darte de alta
+a mano en vez de mandarte un invite code — ver el checklist de onboarding en
+`SECURITY.md` de ese repo (`mix arca.create_plataforma` + certificado mTLS +
+`mix arca.rotate_webhook_secret`). El resultado es el mismo trío
+(`client_cert_path`/`client_key_path`/`api_key`) que `login` guarda solo;
+con este camino los recibís vos a mano y los pasás explícitos:
+
+```python
+client = ArcaServiceClient(
+    base_url="https://arca.tudominio.com",
+    client_cert_path="/etc/ganche/arca-client.crt",
+    client_key_path="/etc/ganche/arca-client.key",
+    api_key="...",
+)
+```
+
+Guardalos en un gestor de secretos compartido (nunca en un archivo
+commiteado ni en un log).
 
 ## Uso
 

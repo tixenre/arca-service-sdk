@@ -42,6 +42,7 @@ from .exceptions import (
     ServiceNotReadyError,
     ValidationError,
 )
+from .local_config import DEFAULT_PROFILE, load_profile
 from .models import (
     BonificadoResult,
     CredencialResult,
@@ -76,16 +77,37 @@ class ArcaServiceClient:
     `api_key`: la API key de tu `Plataforma` en arca-service (Bearer token) — identifica
     QUIÉN sos, el mTLS ya identificó QUE SOS VOS.
 
+    Los cuatro son OPCIONALES: sin pasar ninguno, `ArcaServiceClient()` carga el perfil
+    guardado por `arca-service-client login` (ver `local_config.py`) -- pensado para
+    desarrollo local, no para producción (un container no tiene "tu" `~/.config"; ahí
+    seguí pasando los cuatro explícitos, desde env vars/tu secret manager, como siempre).
+    Pasar CUALQUIERA de los cuatro explícito salta la carga del perfil para ESE campo
+    puntual -- `ArcaServiceClient(api_key="...")` sigue leyendo `base_url`/certs del
+    perfil guardado, por ejemplo. `profile`: qué perfil usar si hace falta cargar uno
+    (`"default"` si tenés uno solo).
+
     Se puede usar como context manager (`with ArcaServiceClient(...) as c:`) para cerrar
     la conexión sola, o llamar `.close()` a mano."""
 
-    base_url: str
-    client_cert_path: str
-    client_key_path: str
-    api_key: str
+    base_url: str | None = None
+    client_cert_path: str | None = None
+    client_key_path: str | None = None
+    api_key: str | None = None
     timeout: float = _TIMEOUT_SECONDS_DEFAULT
+    profile: str = DEFAULT_PROFILE
 
     def __post_init__(self) -> None:
+        self._resolve_credentials()
+        # Los cuatro son `str | None` en la firma (para aceptar `ArcaServiceClient()`
+        # sin argumentos) pero `_resolve_credentials` garantiza que ninguno siga en
+        # `None` al volver -- si no puede completarlos, levanta `CredentialsNotFoundError`
+        # antes de esto. Los asserts son para mypy (no puede seguir esa garantía a
+        # través de una llamada a método), no una validación real.
+        assert self.base_url is not None
+        assert self.client_cert_path is not None
+        assert self.client_key_path is not None
+        assert self.api_key is not None
+
         # `verify=<SSLContext>` + `load_cert_chain`, no el parámetro `cert=` de httpx
         # (deprecado desde 0.28 — sigue andando pero emite un warning en cada
         # construcción; esto es lo que la propia librería recomienda en su lugar).
@@ -97,6 +119,21 @@ class ArcaServiceClient:
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout,
         )
+
+    def _resolve_credentials(self) -> None:
+        """Completa cualquier campo faltante desde el perfil guardado por
+        `arca-service-client login` -- ver `local_config.py`. Si los cuatro ya vinieron
+        explícitos, no toca el perfil (ni siquiera intenta leerlo: no hace falta que
+        exista uno guardado). `load_profile` levanta `CredentialsNotFoundError` si hace
+        falta uno y no hay ninguno -- eso ya deja los cuatro completos o no vuelve."""
+        if self.base_url and self.client_cert_path and self.client_key_path and self.api_key:
+            return
+
+        stored = load_profile(self.profile)
+        self.base_url = self.base_url or stored.base_url
+        self.client_cert_path = self.client_cert_path or stored.client_cert_path
+        self.client_key_path = self.client_key_path or stored.client_key_path
+        self.api_key = self.api_key or stored.api_key
 
     def close(self) -> None:
         self._http.close()

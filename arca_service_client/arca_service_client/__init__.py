@@ -53,6 +53,7 @@ from .exceptions import (
     ServiceNotReadyError,
     ValidationError,
 )
+from .local_config import CredentialsNotFoundError
 from .models import (
     Actividad,
     BonificadoResult,
@@ -85,7 +86,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 __all__ = [
     "__version__",
@@ -137,6 +138,7 @@ __all__ = [
     "AfipUnavailableError",
     "ArcaServiceServerError",
     "BonificadoLimiteError",
+    "CredentialsNotFoundError",
     "IdempotencyConflictError",
     "NotFoundError",
     "RateLimitedError",

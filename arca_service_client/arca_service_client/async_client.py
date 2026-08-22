@@ -28,6 +28,7 @@ import httpx as _httpx
 from .client import _TIMEOUT_SECONDS_DEFAULT, LAYOUT_DEFAULT, _raise_for_status
 from .crypto import seal
 from .exceptions import BonificadoLimiteError
+from .local_config import DEFAULT_PROFILE, load_profile
 from .models import (
     BonificadoResult,
     CredencialResult,
@@ -55,15 +56,29 @@ class AsyncArcaServiceClient:
 
     `.aclose()` (no `.close()`) para cerrar la conexión a mano fuera de un `async with`
     -- mismo nombre que usa `httpx.AsyncClient` para lo mismo, a propósito: alguien que
-    ya usó httpx async reconoce el método sin tener que mirar la doc."""
+    ya usó httpx async reconoce el método sin tener que mirar la doc.
 
-    base_url: str
-    client_cert_path: str
-    client_key_path: str
-    api_key: str
+    Los cuatro campos son opcionales, mismo criterio que `ArcaServiceClient` -- ver su
+    docstring (`client.py`) para el detalle de cómo se resuelve el perfil guardado por
+    `arca-service-client login` cuando no se pasan explícitos."""
+
+    base_url: str | None = None
+    client_cert_path: str | None = None
+    client_key_path: str | None = None
+    api_key: str | None = None
     timeout: float = _TIMEOUT_SECONDS_DEFAULT
+    profile: str = DEFAULT_PROFILE
 
     def __post_init__(self) -> None:
+        self._resolve_credentials()
+        # Ver ArcaServiceClient.__post_init__ (client.py) -- mismos asserts, mismo
+        # motivo (mypy no sigue la garantía de _resolve_credentials a través del
+        # llamado a método).
+        assert self.base_url is not None
+        assert self.client_cert_path is not None
+        assert self.client_key_path is not None
+        assert self.api_key is not None
+
         # Construir un `httpx.AsyncClient` no requiere estar dentro de un event loop
         # (solo `.aclose()`/los métodos de request sí) -- por eso `__post_init__` puede
         # seguir siendo sync, igual que en `ArcaServiceClient`.
@@ -75,6 +90,16 @@ class AsyncArcaServiceClient:
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout,
         )
+
+    def _resolve_credentials(self) -> None:
+        if self.base_url and self.client_cert_path and self.client_key_path and self.api_key:
+            return  # los cuatro ya vinieron explícitos -- no toca el perfil guardado.
+
+        stored = load_profile(self.profile)  # CredentialsNotFoundError si no hay ninguno.
+        self.base_url = self.base_url or stored.base_url
+        self.client_cert_path = self.client_cert_path or stored.client_cert_path
+        self.client_key_path = self.client_key_path or stored.client_key_path
+        self.api_key = self.api_key or stored.api_key
 
     async def aclose(self) -> None:
         await self._http.aclose()

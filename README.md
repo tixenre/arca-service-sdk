@@ -12,7 +12,9 @@ pública; lo único sensible es la clave PRIVADA de cada integrador, que nunca v
 ## Paquetes
 
 - **[`arca_service_client/`](arca_service_client/)** — cliente Python (mTLS + API key,
-  `httpx`). Instalable vía
+  `httpx`) + CLI (`arca-service-client login`/`whoami`, mismo patrón que `stripe login`/
+  `gh auth login`: self-serve, credenciales guardadas solas, nunca un PEM a mano).
+  Instalable vía
   `pip install "arca-service-client @ git+https://github.com/tixenre/arca-service-sdk.git@arca-service-client-vX.Y.Z#subdirectory=arca_service_client"`.
   Ver su propio README para la guía completa.
 - **[`arca_service_ui/`](arca_service_ui/)** — hook React headless
