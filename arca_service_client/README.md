@@ -356,6 +356,40 @@ window.addEventListener("message", (event) => {
 });
 ```
 
+### ¿Ya tenés tu propio motor de facturación?
+
+Leé esto ANTES de conectar `crear_conexion_afip_embed_token`/`importar_credencial` a un
+sistema que ya factura por su cuenta (integración directa con WSAA/WSFE, cert propio,
+tabla propia de emisores) — es la pregunta que conviene resolver primero, no a mitad de
+la integración.
+
+**El flujo embebido no es una forma de "conseguir un certificado" para usar en otro
+lado.** Por diseño, arca-service NUNCA devuelve el cert/clave en claro una vez
+guardados — ni al integrador, ni siquiera a sí mismo fuera del propio flujo de emisión
+(ver "Onboarding de una credencial" arriba: la clave viaja sellada extremo a extremo y
+se queda cifrada en reposo). No hay un endpoint que la "saque" para pegarla en tu propio
+motor. Esto es intencional, no una limitación transitoria — es la misma garantía de
+seguridad que hace seguro embeber el flujo en un iframe de tu frontend en primer lugar.
+
+**Consecuencia práctica:** adoptar arca-service para un emisor puntual significa que ESE
+emisor factura A TRAVÉS de arca-service de ahí en más (`emitir_comprobante`/
+`emitir_nota_credito`/etc.) — no que arca-service te presta un certificado para seguir
+emitiendo vos con tu propia integración. Los dos caminos reales para migrar sin
+"big bang":
+
+- **Emisores nuevos por acá, los viejos se quedan donde están** — mientras no migres
+  un emisor existente, tu sistema actual sigue facturando por él sin ningún cambio.
+  Cero riesgo, cero urgencia.
+- **Migrar un emisor existente** — importás su cert+clave ya vigente
+  (`importar_credencial`, o el propio dueño lo hace vía el embed) y, desde ese momento,
+  TODAS sus emisiones nuevas pasan a `emitir_comprobante`/etc. Tu sistema viejo deja de
+  facturar para ese emisor — no los dos en paralelo: dos numeraciones independientes
+  para el mismo punto de venta ante AFIP no es un problema cosmético, AFIP lo rechaza o
+  genera huecos de numeración reales. Antes de migrar un emisor con reglas propias
+  (perfiles fiscales múltiples, notas de crédito con lógica custom, aprobaciones
+  manuales, etc.), confirmá que arca-service cubre lo que ese emisor necesita — el resto
+  de este README documenta la superficie completa.
+
 ## Licencia
 
 Proprietary — uso restringido a integradores autorizados de arca-service.
