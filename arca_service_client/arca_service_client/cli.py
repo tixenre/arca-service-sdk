@@ -1,5 +1,5 @@
-"""arca_service_client.cli -- `arca-service-client request-invite`/`login`/`whoami`,
-mismo patrón que `stripe login`/`gh auth login`/`aws configure`: un comando,
+"""arca_service_client.cli -- `arca-service-client request-invite`/`login`/`import`/
+`whoami`, mismo patrón que `stripe login`/`gh auth login`/`aws configure`: un comando,
 credenciales guardadas solas -- de ahí en más tu código de app nunca vuelve a tocar un
 PEM a mano (ver `local_config.py` para el porqué y el formato del perfil guardado).
 Entry point declarado en `pyproject.toml` (`[project.scripts]`).
@@ -18,11 +18,26 @@ información pública) en el `POST /signup` -- arca-service lo valida y lo firma
 ve la clave privada, ni un instante. Más correcto técnicamente que la alternativa (que
 el server genere el par y te lo mande una vez) -- y que `arca-service` ya soporta las
 dos, así que no hay ningún motivo para que el camino "profesional" (este CLI) use la
-menos buena."""
+menos buena.
+
+`import` es DISTINTO a los dos de arriba: a diferencia de `login` (que genera SU
+PROPIO par mTLS acá), acá la clave privada del CERTIFICADO AFIP de un Cliente YA
+EXISTE de antes (otro sistema, otra Plataforma, migración) -- no hay nada que generar,
+solo transportarla con cuidado hasta arca-service. Por eso `--cert`/`--key` son RUTAS
+de archivo (no el contenido como argumento): un valor así de sensible no debería
+aparecer nunca en el historial de la shell ni en `ps aux`. Mismo criterio para
+`--key-password` -- si preferís no pasarla como argumento por el mismo motivo,
+`--key-password-prompt` la pide interactiva (oculta, vía `getpass`). Ya sobre
+`ArcaServiceClient` (a diferencia de `request-invite`/`login`): esto asume que ya
+corriste `login` antes -- hace falta mTLS/api_key para poder decirle a arca-service
+"este Cliente es tuyo". El sellado de la clave (RSA-OAEP + AES-256-GCM, nunca en
+claro en el body) lo hace `ArcaServiceClient.importar_credencial` -- ver
+`crypto.py::seal`, y el porqué en su propio moduledoc."""
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import sys
 
@@ -33,6 +48,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 from . import __version__
+from .client import ArcaServiceClient
+from .crypto import EnvelopeError
+from .exceptions import ArcaServiceError
 from .local_config import (
     DEFAULT_PROFILE,
     CredentialsNotFoundError,
@@ -51,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
         return _request_invite(args)
     if args.command == "login":
         return _login(args)
+    if args.command == "import":
+        return _import_credencial(args)
     if args.command == "whoami":
         return _whoami(args)
 
@@ -94,6 +114,33 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Acepta los términos de uso sin preguntar (para uso no interactivo/CI)",
     )
+
+    import_ = sub.add_parser(
+        "import",
+        help="Ya tenés certificado+clave AFIP de un Cliente (de otro lado) -- importalos",
+    )
+    import_.add_argument("--cuit", required=True, help="CUIT del Cliente dueño del certificado")
+    import_.add_argument("--cert", required=True, help="Ruta al certificado AFIP, ej. cliente.crt")
+    import_.add_argument(
+        "--key", required=True, help="Ruta a la clave privada AFIP correspondiente, ej. cliente.key"
+    )
+    import_.add_argument(
+        "--key-password",
+        help="Passphrase de la clave privada, si está cifrada -- o usá --key-password-prompt "
+        "para no pasarla como argumento",
+    )
+    import_.add_argument(
+        "--key-password-prompt",
+        action="store_true",
+        help="Pedir la passphrase de forma interactiva y oculta, en vez de --key-password",
+    )
+    import_.add_argument(
+        "--point-of-sale",
+        type=int,
+        default=0,
+        help="Punto de venta ya habilitado para este certificado, si lo sabés (default: 0)",
+    )
+    import_.add_argument("--profile", default=DEFAULT_PROFILE)
 
     whoami = sub.add_parser("whoami", help="Identidad + vencimiento del perfil guardado")
     whoami.add_argument("--profile", default=DEFAULT_PROFILE)
@@ -249,6 +296,66 @@ def _generar_csr_y_clave(cn: str) -> tuple[str, str]:
         encryption_algorithm=serialization.NoEncryption(),
     ).decode()
     return csr_pem, key_pem
+
+
+def _import_credencial(args: argparse.Namespace) -> int:
+    """`ArcaServiceClient.importar_credencial` vía CLI -- para un Cliente cuyo
+    certificado+clave AFIP ya existen de antes. `cert_pem`/`key_pem` se leen de archivo
+    acá (nunca como texto en un argumento, ver moduledoc) y se pasan tal cual: el
+    sellado (`crypto.py::seal`) lo hace el propio método del cliente, esta función no
+    toca esa parte."""
+    cert_pem = _leer_archivo(args.cert, "el certificado")
+    key_pem = _leer_archivo(args.key, "la clave privada")
+    if cert_pem is None or key_pem is None:
+        return 1
+
+    key_password = args.key_password
+    if key_password is None and args.key_password_prompt:
+        key_password = (
+            getpass.getpass("Passphrase de la clave privada (Enter si no tiene): ") or None
+        )
+
+    try:
+        with ArcaServiceClient(profile=args.profile) as client:
+            external_ref = client.por_cuit(args.cuit).external_ref
+            resultado = client.importar_credencial(
+                external_ref,
+                args.cuit,
+                cert_pem,
+                key_pem,
+                key_password=key_password,
+                point_of_sale=args.point_of_sale,
+            )
+    except CredentialsNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except EnvelopeError as exc:
+        print(f"No se pudo sellar la clave privada: {exc}", file=sys.stderr)
+        return 1
+    except ArcaServiceError as exc:
+        print(
+            f"arca-service rechazó la importación ({exc.status_code}): {exc.detail}",
+            file=sys.stderr,
+        )
+        return 1
+    except httpx.HTTPError as exc:
+        print(f"No se pudo contactar a arca-service: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        f"Credencial importada para CUIT {args.cuit} -- "
+        f"punto de venta: {resultado.point_of_sale}, activa: {resultado.active}."
+    )
+    return 0
+
+
+def _leer_archivo(path: str, descripcion: str) -> str | None:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError as exc:
+        print(f"No se pudo leer {descripcion} ({path}): {exc}", file=sys.stderr)
+        return None
 
 
 def _whoami(args: argparse.Namespace) -> int:

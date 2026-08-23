@@ -1,4 +1,4 @@
-"""Tests de cli.py -- `login`/`whoami`. `httpx_mock` (pytest-httpx) mockea el
+"""Tests de cli.py -- `login`/`import`/`whoami`. `httpx_mock` (pytest-httpx) mockea el
 `POST /signup`; `isolated_config_dir` (conftest.py) aísla el perfil guardado en un
 `tmp_path` propio de cada test."""
 
@@ -8,14 +8,39 @@ import json
 
 import pytest
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 from arca_service_client import cli
-from arca_service_client.local_config import CredentialsNotFoundError, load_profile
+from arca_service_client.local_config import (
+    DEFAULT_PROFILE,
+    CredentialsNotFoundError,
+    Profile,
+    load_profile,
+    save_profile,
+)
 
 _BASE_URL = "https://arca.test"
+_API = f"{_BASE_URL}/api/v1"
 _SIGNUP_URL = f"{_BASE_URL}/api/v1/signup"
 _SIGNUP_REQUESTS_URL = f"{_BASE_URL}/api/v1/signup-requests"
+
+
+def _clave_publica_de_test() -> str:
+    """Clave pública RSA real (no un string cualquiera) -- `crypto.seal()` la parsea de
+    verdad y cifra contra ella, así que `--cert`/`--key` de un test de `import` llegan
+    hasta ahí. Mismo helper que `test_client.py::_clave_publica_de_test`, repetido acá
+    a propósito -- cada archivo de test de este paquete se mantiene autocontenido."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return (
+        key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
 
 
 def _login_args(**overrides):
@@ -363,3 +388,223 @@ def test_whoami_con_perfil_guardado_muestra_la_identidad(
     assert exit_code == 0
     assert "rambla" in salida
     assert _BASE_URL in salida
+
+
+# ---------------------------------------------------------------------------
+# import -- certificado+clave AFIP que un Cliente ya tenía de antes (de otro
+# lado, o de otra Plataforma). A diferencia de login/request-invite, esto
+# corre CON un perfil ya guardado -- cada test que lo necesita lo arma con
+# `_con_perfil_guardado` (guarda uno directo, ver por qué no vía `login` en
+# su propio comentario).
+# ---------------------------------------------------------------------------
+
+
+def _con_perfil_guardado(isolated_config_dir, client_cert_pem):
+    # A diferencia de correr `login` de verdad (que generaría SU PROPIA clave,
+    # distinta del cert self-signed que devuelve el mock -- mismatch inofensivo
+    # para los tests de whoami/login de arriba, que nunca abren TLS de verdad
+    # con el perfil guardado) -- import SÍ construye un `ArcaServiceClient`
+    # real, que valida cert/clave al abrir el `ssl_context` (`load_cert_chain`
+    # revienta con `KEY_VALUES_MISMATCH` si no coinciden). `client_cert_pem` es
+    # un PAR ya consistente (mismo `_self_signed_cert_and_key_pem()`, ver
+    # conftest.py) -- guardarlo tal cual evita ese problema sin tener que
+    # pasar por el mock de `POST /signup`.
+    cert_pem, key_pem = client_cert_pem
+    save_profile(
+        DEFAULT_PROFILE,
+        Profile(
+            base_url=_BASE_URL,
+            api_key="arca_test-key",
+            client_cert_path="",
+            client_key_path="",
+            plataforma_slug="rambla",
+        ),
+        cert_pem=cert_pem,
+        key_pem=key_pem,
+    )
+
+
+def _archivos_cert_y_clave(tmp_path):
+    # Contenido placeholder -- ni cli.py ni el server (mockeado acá) lo
+    # parsean de verdad, solo se lee y se manda tal cual (ver
+    # test_client.py, mismo criterio para su propio "-----BEGIN
+    # CERTIFICATE-----...").
+    cert_path = tmp_path / "afip.crt"
+    key_path = tmp_path / "afip.key"
+    cert_path.write_text("-----BEGIN CERTIFICATE-----...")
+    key_path.write_text("-----BEGIN PRIVATE KEY-----...")
+    return str(cert_path), str(key_path)
+
+
+def _import_args(cert_path, key_path, **overrides):
+    args = {"--cuit": "20301234563", "--cert": cert_path, "--key": key_path}
+    args.update(overrides)
+    argv = ["import"]
+    for flag, value in args.items():
+        argv.extend([flag, value])
+    return argv
+
+
+def test_import_feliz_importa_la_credencial(
+    isolated_config_dir, client_cert_pem, httpx_mock, capsys, tmp_path
+):
+    _con_perfil_guardado(isolated_config_dir, client_cert_pem)
+    cert_path, key_path = _archivos_cert_y_clave(tmp_path)
+
+    httpx_mock.add_response(
+        method="POST", url=f"{_API}/clientes/por-cuit", json={"external_ref": "cliente-1"}
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/envelope/clave-publica",
+        json={"public_key_pem": _clave_publica_de_test()},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/credencial/importar",
+        json={"point_of_sale": 5, "active": True},
+    )
+
+    exit_code = cli.main(_import_args(cert_path, key_path))
+
+    salida = capsys.readouterr().out
+    assert exit_code == 0
+    assert "5" in salida
+    assert "activa: True" in salida
+
+
+def test_import_nunca_manda_la_clave_privada_en_claro(
+    isolated_config_dir, client_cert_pem, httpx_mock, capsys, tmp_path
+):
+    """El punto entero de `importar_credencial` -- ver moduledoc de cli.py y de
+    crypto.py. Si esto alguna vez fallara sería el bug más grave posible acá."""
+    _con_perfil_guardado(isolated_config_dir, client_cert_pem)
+    cert_path, key_path = _archivos_cert_y_clave(tmp_path)
+
+    httpx_mock.add_response(
+        method="POST", url=f"{_API}/clientes/por-cuit", json={"external_ref": "cliente-1"}
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/envelope/clave-publica",
+        json={"public_key_pem": _clave_publica_de_test()},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/credencial/importar",
+        json={"point_of_sale": 0, "active": True},
+    )
+
+    cli.main(_import_args(cert_path, key_path))
+
+    [_por_cuit, _clave_publica, importar] = httpx_mock.get_requests()
+    body = json.loads(importar.content)
+    assert "PRIVATE KEY" not in json.dumps(body)
+    assert set(body["sealed"].keys()) == {"v", "ek", "n", "ct"}
+
+
+def test_import_sin_perfil_guardado_falla_claro(isolated_config_dir, capsys, tmp_path):
+    cert_path, key_path = _archivos_cert_y_clave(tmp_path)
+
+    exit_code = cli.main(_import_args(cert_path, key_path))
+
+    assert exit_code == 1
+    assert "login" in capsys.readouterr().err
+
+
+def test_import_certificado_inexistente_falla_claro_sin_pegarle_a_la_red(
+    isolated_config_dir, client_cert_pem, httpx_mock, capsys, tmp_path
+):
+    _con_perfil_guardado(isolated_config_dir, client_cert_pem)
+    _cert_path, key_path = _archivos_cert_y_clave(tmp_path)
+
+    exit_code = cli.main(_import_args(str(tmp_path / "no-existe.crt"), key_path))
+
+    assert exit_code == 1
+    assert "no-existe.crt" in capsys.readouterr().err
+    assert httpx_mock.get_requests() == []
+
+
+def test_import_rechazado_por_arca_service_falla_claro(
+    isolated_config_dir, client_cert_pem, httpx_mock, capsys, tmp_path
+):
+    _con_perfil_guardado(isolated_config_dir, client_cert_pem)
+    cert_path, key_path = _archivos_cert_y_clave(tmp_path)
+
+    httpx_mock.add_response(
+        method="POST", url=f"{_API}/clientes/por-cuit", json={"external_ref": "cliente-1"}
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/envelope/clave-publica",
+        json={"public_key_pem": _clave_publica_de_test()},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/credencial/importar",
+        status_code=422,
+        json={"detail": "El certificado no corresponde a la clave privada enviada."},
+    )
+
+    exit_code = cli.main(_import_args(cert_path, key_path))
+
+    assert exit_code == 1
+    assert "no corresponde a la clave privada" in capsys.readouterr().err
+
+
+def test_import_key_password_prompt_no_lo_pide_si_ya_vino_por_flag(
+    isolated_config_dir, client_cert_pem, httpx_mock, capsys, tmp_path, monkeypatch
+):
+    _con_perfil_guardado(isolated_config_dir, client_cert_pem)
+    cert_path, key_path = _archivos_cert_y_clave(tmp_path)
+
+    def _no_deberia_llamarse(*_args, **_kwargs):
+        raise AssertionError("--key-password ya vino por flag, no debería pedirse interactivo")
+
+    monkeypatch.setattr("getpass.getpass", _no_deberia_llamarse)
+
+    httpx_mock.add_response(
+        method="POST", url=f"{_API}/clientes/por-cuit", json={"external_ref": "cliente-1"}
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/envelope/clave-publica",
+        json={"public_key_pem": _clave_publica_de_test()},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/credencial/importar",
+        json={"point_of_sale": 0, "active": True},
+    )
+
+    exit_code = cli.main(_import_args(cert_path, key_path, **{"--key-password": "hunter2"}))
+
+    assert exit_code == 0
+
+
+def test_import_key_password_prompt_pide_interactivo_si_no_vino_por_flag(
+    isolated_config_dir, client_cert_pem, httpx_mock, capsys, tmp_path, monkeypatch
+):
+    _con_perfil_guardado(isolated_config_dir, client_cert_pem)
+    cert_path, key_path = _archivos_cert_y_clave(tmp_path)
+
+    monkeypatch.setattr("getpass.getpass", lambda *_args: "hunter2")
+
+    httpx_mock.add_response(
+        method="POST", url=f"{_API}/clientes/por-cuit", json={"external_ref": "cliente-1"}
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/envelope/clave-publica",
+        json={"public_key_pem": _clave_publica_de_test()},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/credencial/importar",
+        json={"point_of_sale": 0, "active": True},
+    )
+
+    argv = _import_args(cert_path, key_path) + ["--key-password-prompt"]
+    exit_code = cli.main(argv)
+
+    assert exit_code == 0

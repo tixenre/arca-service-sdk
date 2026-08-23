@@ -296,6 +296,30 @@ Dos caminos hacia una `ArcaCredential` en arca-service, según qué tenga tu int
   sellada extremo a extremo (RSA-OAEP + AES-256-GCM contra la clave pública vigente de
   arca-service, nunca en claro en el body).
 
+### Con certificado y clave propios: `arca-service-client import`
+
+Si un Cliente ya tiene certificado+clave AFIP de antes (otro sistema, otra
+Plataforma, una migración), no hace falta pasar por `generar_csr` — importalos
+directo:
+
+```
+arca-service-client import --cuit 20301234563 --cert cliente.crt --key cliente.key
+```
+
+Requiere que ya hayas corrido `login` (o configurado tu perfil a mano) —
+`import` actúa en nombre de TU Plataforma, así que necesita tu mTLS/API key
+en mano, igual que cualquier otro comando autenticado. `--cert`/`--key` son
+**rutas de archivo**, nunca el contenido como argumento — un valor tan
+sensible como una clave privada no debería aparecer en tu historial de shell
+ni en `ps aux`. Si la clave está cifrada, pasá `--key-password` o, para no
+escribir la passphrase en un argumento tampoco, `--key-password-prompt` (la
+pide de forma interactiva y oculta). `--point-of-sale`: si ya sabés cuál está
+habilitado para este certificado (default `0` — se puede asignar después con
+`listar_puntos_de_venta`).
+
+La clave nunca viaja en claro — `import` la sella (mismo mecanismo que
+`importar_credencial` de arriba) antes de mandarla.
+
 ## Licencia
 
 Proprietary — uso restringido a integradores autorizados de arca-service.
