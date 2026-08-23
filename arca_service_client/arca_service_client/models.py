@@ -272,6 +272,26 @@ class EmbedTokenResult:
         )
 
 
+@dataclass(frozen=True)
+class ConexionAfipEmbedTokenResult:
+    """Respuesta de `ArcaServiceClient.crear_conexion_afip_embed_token` -- mismo patrón
+    que `EmbedTokenResult` (`embed_url` público, vale hasta `expires_at`), pero
+    `embed_url` acá apunta a un flujo INTERACTIVO (generar/completar/importar la
+    credencial, elegir cuál usar) en vez de una vista de solo lectura -- pensado para
+    `<iframe src="...">` en el frontend de tu Plataforma, para que tu cliente final
+    gestione su propia conexión AFIP sin loguearse en arca-service ni ver nada de este
+    SDK ni de tu backend en el medio. Ver el README, "Conexión AFIP embebida (iframe)"."""
+
+    embed_url: str
+    expires_at: datetime
+
+    @staticmethod
+    def _from_json(d: dict) -> ConexionAfipEmbedTokenResult:
+        return ConexionAfipEmbedTokenResult(
+            embed_url=d["embed_url"], expires_at=_parse_fecha_hora(d["expires_at"])
+        )
+
+
 # ---------------------------------------------------------------------------
 # Response — onboarding de credencial
 # ---------------------------------------------------------------------------

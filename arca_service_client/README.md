@@ -320,6 +320,42 @@ habilitado para este certificado (default `0` — se puede asignar después con
 La clave nunca viaja en claro — `import` la sella (mismo mecanismo que
 `importar_credencial` de arriba) antes de mandarla.
 
+## Conexión AFIP embebida (iframe): `crear_conexion_afip_embed_token`
+
+Un TERCER camino hacia una `ArcaCredential`, alternativo a los dos de arriba: en vez de
+que TU backend orqueste `generar_csr`/`completar_credencial`/`importar_credencial` paso a
+paso, tu cliente final los completa él mismo en una página que sirve arca-service —
+mismo patrón "hosted page" que `crear_embed_token` (comprobantes, ver arriba), pero acá
+es un flujo INTERACTIVO completo, no una vista de solo lectura. Útil cuando no querés
+construir vos la UI de "subí tu certificado" (o tu cliente final ya tiene varios
+certificados AFIP y necesita elegir cuál usar).
+
+```python
+resultado = client.crear_conexion_afip_embed_token("cliente-1")
+resultado.embed_url    # "https://arca.tudominio.com/embed/conexion-afip/<token>"
+resultado.expires_at   # datetime UTC -- 30 min desde la emisión del token, por default
+```
+
+`embed_url` no requiere mTLS ni API key para abrirse -- listo para `<iframe
+src="...">` directo en tu frontend. Mismo trade-off de vida corta que
+`crear_embed_token` (sin revocación individual, la ventana corta ES el
+control) -- tratalo como un secreto de corta vida, no lo loggees ni lo
+guardes más tiempo del que dure.
+
+A diferencia de `crear_embed_token` (una vista estática, nada que
+"terminar"), esta página SÍ tiene un final: apenas tu cliente completa su
+conexión, manda `window.parent.postMessage({type: "arca:conexion_completa"},
+"*")` — escuchalo en tu frontend para reaccionar (cerrar el iframe/modal,
+refrescar tu propio estado) sin tener que hacer polling contra tu backend:
+
+```javascript
+window.addEventListener("message", (event) => {
+  if (event.data?.type === "arca:conexion_completa") {
+    // cerrar el iframe, refrescar tu propio estado, etc.
+  }
+});
+```
+
 ## Licencia
 
 Proprietary — uso restringido a integradores autorizados de arca-service.

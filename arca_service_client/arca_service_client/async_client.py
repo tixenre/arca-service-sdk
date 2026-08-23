@@ -31,6 +31,7 @@ from .exceptions import BonificadoLimiteError
 from .local_config import DEFAULT_PROFILE, load_profile
 from .models import (
     BonificadoResult,
+    ConexionAfipEmbedTokenResult,
     CredencialResult,
     DiagnosticoResult,
     EmbedTokenResult,
@@ -191,6 +192,18 @@ class AsyncArcaServiceClient:
         resp = await self._http.get(f"/clientes/{external_ref}/credencial/puntos-venta")
         _raise_for_status(resp)
         return PuntosVentaResult._from_json(resp.json())
+
+    # ------------------------------------------------------------------
+    # Conexión AFIP embebida (iframe) -- ver ArcaServiceClient.crear_conexion_afip_embed_token
+    # (client.py) para el detalle completo, es la misma doc.
+    # ------------------------------------------------------------------
+
+    async def crear_conexion_afip_embed_token(
+        self, external_ref: str
+    ) -> ConexionAfipEmbedTokenResult:
+        resp = await self._http.post(f"/clientes/{external_ref}/conexion-afip/embed-token")
+        _raise_for_status(resp)
+        return ConexionAfipEmbedTokenResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
     # Padrón

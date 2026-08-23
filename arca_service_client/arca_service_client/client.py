@@ -41,6 +41,7 @@ from .exceptions import (
 from .local_config import DEFAULT_PROFILE, load_profile
 from .models import (
     BonificadoResult,
+    ConexionAfipEmbedTokenResult,
     CredencialResult,
     DiagnosticoResult,
     EmbedTokenResult,
@@ -238,6 +239,29 @@ class ArcaServiceClient:
         resp = self._http.get(f"/clientes/{external_ref}/credencial/puntos-venta")
         _raise_for_status(resp)
         return PuntosVentaResult._from_json(resp.json())
+
+    # ------------------------------------------------------------------
+    # Conexión AFIP embebida (iframe) -- alternativa a generar_csr +
+    # completar_credencial/importar_credencial de arriba: en vez de que TU
+    # backend orqueste esos pasos, tu cliente final los completa él mismo
+    # en un `<iframe>` servido por arca-service (mismo patrón "hosted page"
+    # que crear_embed_token, más abajo, pero un flujo interactivo en vez de
+    # una vista de solo lectura). Ver el README, "Conexión AFIP embebida
+    # (iframe)".
+    # ------------------------------------------------------------------
+
+    def crear_conexion_afip_embed_token(self, external_ref: str) -> ConexionAfipEmbedTokenResult:
+        """`embed_url` sirve `ConexionAfipLive` (arca-service) SIN mTLS/API key -- listo
+        para `<iframe src="...">`. El flujo entero corre ahí (generar/subir el
+        certificado, elegir cuál usar si ya tenía varios) sin que tu backend tenga que
+        estar en el medio paso a paso. Cuando tu cliente final termina de conectar su
+        cuenta, esa página manda `window.parent.postMessage({type:
+        "arca:conexion_completa"}, "*")` -- escuchalo en tu frontend
+        (`window.addEventListener("message", ...)`) para reaccionar (cerrar el iframe,
+        refrescar tu propio estado, etc.) sin tener que hacer polling contra tu backend."""
+        resp = self._http.post(f"/clientes/{external_ref}/conexion-afip/embed-token")
+        _raise_for_status(resp)
+        return ConexionAfipEmbedTokenResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
     # Padrón

@@ -463,6 +463,33 @@ async def test_crear_embed_token_idempotency_key_ajena_levanta_not_found_error(c
         await client.crear_embed_token("cliente-1", "no-existe")
 
 
+async def test_crear_conexion_afip_embed_token(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/conexion-afip/embed-token",
+        json={
+            "embed_url": "https://arca.test/embed/conexion-afip/xyz",
+            "expires_at": "2026-08-23T22:30:00.000000Z",
+        },
+    )
+    result = await client.crear_conexion_afip_embed_token("cliente-1")
+    assert result.embed_url == "https://arca.test/embed/conexion-afip/xyz"
+    assert result.expires_at == datetime(2026, 8, 23, 22, 30, tzinfo=timezone.utc)
+
+
+async def test_crear_conexion_afip_embed_token_external_ref_ajeno_levanta_not_found_error(
+    client, httpx_mock
+):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/no-existe/conexion-afip/embed-token",
+        status_code=404,
+        json={"detail": "No encontrado."},
+    )
+    with pytest.raises(NotFoundError):
+        await client.crear_conexion_afip_embed_token("no-existe")
+
+
 # ---------------------------------------------------------------------------
 # Lote
 # ---------------------------------------------------------------------------
