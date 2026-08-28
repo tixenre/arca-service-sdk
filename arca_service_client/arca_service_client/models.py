@@ -220,6 +220,82 @@ class ComprobanteInput:
         return payload
 
 
+@dataclass
+class SesionEmbebidaInput:
+    """Mismo espejo que `ComprobanteInput`, para
+    `ArcaServiceClient.crear_sesion_embebida_comprobante`/`_nota_credito`/`_nota_debito`
+    -- pero SIN los campos de `receptor`: eso lo completa el comprador dentro del
+    `<iframe>`, no tu Plataforma. Por eso es un dataclass aparte y no `ComprobanteInput`
+    con esos campos opcionales -- `ComprobanteInput` los exige a propósito para
+    `emitir_comprobante` y compañía, y volverlos opcionales ahí debilitaría esa
+    validación para el camino que sí conoce al receptor.
+
+    `comprobante_asociado` es obligatorio del lado servidor para
+    `crear_sesion_embebida_nota_credito`/`_nota_debito`, igual que en
+    `ComprobanteInput` -- ver su docstring."""
+
+    idempotency_key: str
+    concepto: int
+    emisor_condicion_iva: int
+    fecha: date
+    punto_venta: int | None = None
+    fecha_serv_desde: date | None = None
+    fecha_serv_hasta: date | None = None
+    fecha_vto_pago: date | None = None
+    moneda: str = "PES"
+    cotizacion: Decimal = Decimal("1")
+    importe_neto: Decimal = Decimal("0")
+    importe_no_gravado: Decimal = Decimal("0")
+    importe_exento: Decimal = Decimal("0")
+    alicuota_unica: int | None = None
+    items_iva: list[ItemIva] = field(default_factory=list)
+    tributos: list[Tributo] = field(default_factory=list)
+    opcionales: list[Opcional] = field(default_factory=list)
+    forzar_cbte_tipo: int | None = None
+    items: list[ItemFactura] = field(default_factory=list)
+    emisor_razon_social: str = ""
+    emisor_domicilio: str = ""
+    emisor_iibb: str = ""
+    condicion_venta: str = "Contado"
+    comprobante_asociado: ComprobanteAsociado | None = None
+
+    def to_payload(self) -> dict:
+        payload: dict = {
+            "idempotency_key": self.idempotency_key,
+            "concepto": int(self.concepto),
+            "emisor_condicion_iva": int(self.emisor_condicion_iva),
+            "fecha": self.fecha.isoformat(),
+            "moneda": self.moneda,
+            "cotizacion": str(self.cotizacion),
+            "importe_neto": str(self.importe_neto),
+            "importe_no_gravado": str(self.importe_no_gravado),
+            "importe_exento": str(self.importe_exento),
+            "items_iva": [i._to_dict() for i in self.items_iva],
+            "tributos": [t._to_dict() for t in self.tributos],
+            "opcionales": [o._to_dict() for o in self.opcionales],
+            "items": [it._to_dict() for it in self.items],
+            "emisor_razon_social": self.emisor_razon_social,
+            "emisor_domicilio": self.emisor_domicilio,
+            "emisor_iibb": self.emisor_iibb,
+            "condicion_venta": self.condicion_venta,
+        }
+        if self.punto_venta is not None:
+            payload["punto_venta"] = self.punto_venta
+        if self.fecha_serv_desde is not None:
+            payload["fecha_serv_desde"] = self.fecha_serv_desde.isoformat()
+        if self.fecha_serv_hasta is not None:
+            payload["fecha_serv_hasta"] = self.fecha_serv_hasta.isoformat()
+        if self.fecha_vto_pago is not None:
+            payload["fecha_vto_pago"] = self.fecha_vto_pago.isoformat()
+        if self.alicuota_unica is not None:
+            payload["alicuota_unica"] = int(self.alicuota_unica)
+        if self.forzar_cbte_tipo is not None:
+            payload["forzar_cbte_tipo"] = int(self.forzar_cbte_tipo)
+        if self.comprobante_asociado is not None:
+            payload["comprobante_asociado"] = self.comprobante_asociado._to_dict()
+        return payload
+
+
 # ---------------------------------------------------------------------------
 # Response — Cliente (onboarding por CUIT + vínculo)
 # ---------------------------------------------------------------------------
@@ -569,7 +645,14 @@ class EmisionResult:
     """Espejo de `EmisionOut`. `estado`: `"pending"` recién creada, `"issued"` con
     `numero`/`cae`/`cae_vencimiento`/`qr_url` ya completos, o `"error"` con `errores`
     poblado — pollear `ArcaServiceClient.get_comprobante` hasta que deje de ser
-    `"pending"` (o esperar el webhook, si lo configuraste)."""
+    `"pending"` (o esperar el webhook, si lo configuraste). Mirá SIEMPRE `estado` para
+    saber si ya está listo: los importes se calculan desde que la emisión se crea, así
+    que YA NO hay ningún importe en cero mientras está `pending` que sirva de proxy.
+
+    `observaciones`: comentarios de AFIP sobre un comprobante que SÍ autorizó (ej. el
+    documento del receptor no figura en el padrón, una fecha al límite) -- a diferencia
+    de `errores`, no bloquean nada ni cambian `estado`; vale la pena mostrárselos a quien
+    emitió en vez de descartarlos."""
 
     id: str
     idempotency_key: str
@@ -580,6 +663,7 @@ class EmisionResult:
     cae_vencimiento: date | None = None
     qr_url: str = ""
     errores: list | None = None
+    observaciones: list[str] | None = None
     webhook_delivered: bool | None = None
     webhook_last_error: str = ""
 
@@ -595,8 +679,28 @@ class EmisionResult:
             cae_vencimiento=_fecha(d.get("cae_vencimiento")),
             qr_url=d.get("qr_url", ""),
             errores=d.get("errores"),
+            observaciones=d.get("observaciones"),
             webhook_delivered=d.get("webhook_delivered"),
             webhook_last_error=d.get("webhook_last_error", ""),
+        )
+
+
+@dataclass(frozen=True)
+class SesionEmbebidaResult:
+    """Respuesta 201 de `ArcaServiceClient.crear_sesion_embebida_comprobante`/
+    `_nota_credito`/`_nota_debito` -- `embed_url` es un link PÚBLICO (sin mTLS/API key,
+    listo para `<iframe src="...">`) donde el comprador completa sus propios datos;
+    vale hasta `expires_at` (30 min por default del lado servidor). Mismo trade-off de
+    vida corta que `EmbedTokenResult`/`ConexionAfipEmbedTokenResult` -- tratalo como un
+    secreto de corta vida, no lo loggees ni lo guardes más tiempo del que dure."""
+
+    embed_url: str
+    expires_at: datetime
+
+    @staticmethod
+    def _from_json(d: dict) -> SesionEmbebidaResult:
+        return SesionEmbebidaResult(
+            embed_url=d["embed_url"], expires_at=_parse_fecha_hora(d["expires_at"])
         )
 
 

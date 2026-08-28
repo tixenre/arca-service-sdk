@@ -207,6 +207,50 @@ arca-service todavía no le pidió el CAE a AFIP. El resultado real llega por:
 - **Webhook** (opcional, si tu Plataforma configuró `webhook_url` en arca-service): un
   `POST` a tu URL con el mismo shape de `EmisionResult`, firmado — ver abajo.
 
+**Mirá `estado`, no un importe, para saber si ya está listo.** Los seis importes se
+calculan desde que la emisión se crea (no cuando AFIP contesta), así que ya no hay
+ningún importe en cero que sirva de proxy de "todavía pending" — si tu código llegó a
+usar ese atajo, ahora lee plata de verdad y no se entera por una excepción.
+
+`observaciones` (lista de strings, o `None`): comentarios de AFIP sobre un comprobante
+que SÍ autorizó (ej. el documento del receptor no figura en el padrón, una fecha al
+límite) — a diferencia de `errores`, no bloquean nada ni cambian `estado`. Vale la pena
+mostrárselos a quien emitió en vez de descartarlos.
+
+### Sesión embebida: facturar sin conocer al receptor
+
+`crear_sesion_embebida_comprobante`/`crear_sesion_embebida_nota_credito`/
+`crear_sesion_embebida_nota_debito` son una puerta de entrada ALTERNATIVA a
+`emitir_comprobante`/`emitir_nota_credito`/`emitir_nota_debito` — no las reemplazan, es
+un método más. Sirven para cuando tu Plataforma sabe cuánto facturar pero no a quién: el
+comprador completa sus propios datos en un `<iframe>` que sirve arca-service.
+
+```python
+from arca_service_client import SesionEmbebidaInput
+
+resultado = client.crear_sesion_embebida_comprobante(
+    onboarding.external_ref,
+    SesionEmbebidaInput(
+        idempotency_key="factura-8231",
+        concepto=Concepto.PRODUCTOS,
+        emisor_condicion_iva=CondicionIva.RESPONSABLE_INSCRIPTO,
+        fecha=date.today(),
+        importe_neto=Decimal("1000.00"),
+        alicuota_unica=Alicuota.IVA_21,
+    ),
+)
+resultado.embed_url    # listo para <iframe src="...">
+resultado.expires_at   # datetime UTC -- 30 min desde que se creó la sesión
+```
+
+`SesionEmbebidaInput` es el mismo body que `ComprobanteInput` pero SIN los campos de
+receptor (`receptor_doc_tipo`/`receptor_doc_nro`/`receptor_condicion_iva`/
+`receptor_nombre`/`receptor_domicilio`) -- eso lo completa el comprador adentro del
+iframe. El importe y todo lo demás quedan fijos desde este llamado: la página embebida
+no los puede cambiar, y un ítem mal armado da error acá y no media hora después con
+alguien mirando un iframe que no carga. `crear_sesion_embebida_nota_credito`/
+`_nota_debito` exigen `comprobante_asociado`, igual que sus equivalentes `emitir_*`.
+
 ## `idempotency_key`
 
 Tiene que ser determinístico por operación real (no un valor random generado en cada
@@ -262,24 +306,40 @@ conozca la URL — verificalo SIEMPRE antes de procesar el payload.
 
 ## Errores
 
-Todo error HTTP (status >= 400) de arca-service se levanta como una subclase tipada de
-`ArcaServiceError` — `except ArcaServiceError` atrapa cualquiera, o discriminá por
-subtipo:
+Todo error HTTP (status >= 400) de arca-service viaja como
+`{"error": {"type", "code", "message", "param"?, "afip"?}}` y se levanta como una
+subclase tipada de `ArcaServiceError` — `except ArcaServiceError` atrapa cualquiera, o
+discriminá por `.code` (el motivo puntual, estable — lo que hay que mirar para
+ramificar) o por `.type` (la decisión gruesa, son CUATRO y no crecen). `.message` es
+para mostrar a una persona, nunca para ramificar.
 
-| Excepción | Status | Cuándo |
+| `type` | Excepción base | Qué hacer |
 |---|---|---|
-| `NotFoundError` | 404 | El recurso no existe para este Cliente, o el `external_ref` no existe / tu Plataforma no está autorizada contra él |
-| `IdempotencyConflictError` | 409 | Misma `idempotency_key`, datos distintos |
-| `BonificadoLimiteError` | 409 | `set_bonificado` chocó contra el límite de seguridad de tu Plataforma — pedile a arca-service que lo suba, no es un error tuyo ni del Cliente |
-| `ValidationError` | 422 | Regla de negocio rechazada (propia o de AFIP) |
-| `RateLimitedError` | 429 | Límite de requests excedido — `.retry_after` en segundos |
-| `AfipUnavailableError` | 502 | AFIP no respondió — transitorio, reintentable con backoff |
-| `ServiceNotReadyError` | 503 | arca-service no terminó de arrancar |
-| `ArcaServiceServerError` | 500 (o cualquier otro) | Bug del lado del servidor |
+| `request` | `RequestError` | Cambiá lo que mandás (según `.code`/`.param`) y reintentá |
+| `configuracion` | `ConfiguracionError` | Nada desde el código -- el dueño del CUIT tiene un trámite pendiente en el portal de AFIP |
+| `afip` | `AfipError` | AFIP rechazó (no reintentes) o no contestó (reintentá) -- lo dice `.code` |
+| `interno` | `InternoError` | Es del lado de arca-service -- avisale si persiste |
+
+Un `.code` que este SDK todavía no conoce cae en la excepción genérica de su `.type` de
+todos modos (con el `code` real igual accesible en `.code`) — la lista de `code` crece,
+los cuatro `type` no. Algunos `code` puntuales tienen su propia subclase con nombre,
+para no obligarte a mirar `.code` a mano en los casos más comunes:
+
+| Excepción | `type` | Status típico | Cuándo |
+|---|---|---|---|
+| `NotFoundError` | `request` | 404 | El recurso no existe para este Cliente, o el `external_ref` no existe / tu Plataforma no está autorizada contra él |
+| `IdempotencyConflictError` | `request` | 409 | Misma `idempotency_key`, datos distintos |
+| `RateLimitedError` | `request` | 429 | Límite de requests excedido — `.retry_after` en segundos |
+| `PuntoVentaNoHabilitadoError` | `configuracion` | 422 | El punto de venta no está habilitado en AFIP (bloqueado, dado de baja, o no electrónico) — se arregla en el portal de AFIP, no cambiando el request |
+| `NotaExcedeComprobanteError` | `request` | 422 | La nota de crédito/débito acredita más de lo que queda disponible en la factura que referencia (`.param == "comprobante_asociado"`) |
+| `AfipRechazoError` | `afip` | 422 | AFIP rechazó el comprobante — `.afip` trae los códigos de rechazo sin masticar (`AfipErrorDetail.codigo`/`.mensaje`), no reintentable |
+| `AfipUnavailableError` | `afip` | 502 | AFIP no contestó o contestó en un formato inesperado — transitorio, reintentable con backoff |
+| `ServicioNoDisponibleError` | `interno` | 503 | arca-service no puede completar ESTE request puntual (ej. el renderizador de PDF/imagen está caído) — **no significa que la emisión haya fallado**, el CAE sigue ahí |
+| `BonificadoLimiteError` | `request` | 409 | `set_bonificado` chocó contra el límite de seguridad de tu Plataforma — pedile a arca-service que lo suba, no es un error tuyo ni del Cliente |
 
 `IdempotencyConflictError` y `BonificadoLimiteError` comparten status code (409) pero
-NO tipo — son dos conflictos de negocio sin relación, cada uno con su propio subtipo a
-propósito para que discriminar por `except` no los confunda.
+NO significado — son dos conflictos de negocio sin relación, cada uno con su propio
+subtipo a propósito para que discriminar por `except` no los confunda.
 
 Fallas de TRANSPORTE (timeout, DNS, conexión rechazada) NO se envuelven — se dejan
 propagar como excepciones nativas de `httpx` (`httpx.TimeoutException`,

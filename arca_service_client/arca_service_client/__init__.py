@@ -42,15 +42,21 @@ from .client import ArcaServiceClient
 from .crypto import EnvelopeError, seal
 from .enums import Alicuota, CbteTipo, Concepto, CondicionIva, DocTipo
 from .exceptions import (
+    AfipError,
+    AfipErrorDetail,
+    AfipRechazoError,
     AfipUnavailableError,
     ArcaServiceError,
-    ArcaServiceServerError,
     BonificadoLimiteError,
+    ConfiguracionError,
     IdempotencyConflictError,
+    InternoError,
+    NotaExcedeComprobanteError,
     NotFoundError,
+    PuntoVentaNoHabilitadoError,
     RateLimitedError,
-    ServiceNotReadyError,
-    ValidationError,
+    RequestError,
+    ServicioNoDisponibleError,
 )
 from .local_config import CredentialsNotFoundError
 from .models import (
@@ -82,11 +88,13 @@ from .models import (
     PuntoVentaExcluido,
     PuntoVentaHabilitado,
     Regimen,
+    SesionEmbebidaInput,
+    SesionEmbebidaResult,
     Tributo,
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 
 __all__ = [
     "__version__",
@@ -104,6 +112,7 @@ __all__ = [
     "ItemFactura",
     "ItemIva",
     "Opcional",
+    "SesionEmbebidaInput",
     "Tributo",
     # response
     "Actividad",
@@ -129,20 +138,28 @@ __all__ = [
     "PuntoVentaExcluido",
     "PuntoVentaHabilitado",
     "Regimen",
+    "SesionEmbebidaResult",
     # envelope (importar_credencial)
     "EnvelopeError",
     "seal",
     # webhooks
     "verify_webhook_signature",
-    # errores
+    # errores -- ver exceptions.py para el sobre {"error": {type, code, message, ...}}
+    # y qué type/code cae en cada excepción.
     "ArcaServiceError",
+    "AfipError",
+    "AfipErrorDetail",
+    "AfipRechazoError",
     "AfipUnavailableError",
-    "ArcaServiceServerError",
     "BonificadoLimiteError",
+    "ConfiguracionError",
     "CredentialsNotFoundError",
     "IdempotencyConflictError",
+    "InternoError",
+    "NotaExcedeComprobanteError",
     "NotFoundError",
+    "PuntoVentaNoHabilitadoError",
     "RateLimitedError",
-    "ServiceNotReadyError",
-    "ValidationError",
+    "RequestError",
+    "ServicioNoDisponibleError",
 ]

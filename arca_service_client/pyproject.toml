@@ -4,7 +4,7 @@ name = "arca-service-client"
 # recién cuando el contrato público se estabilice con uso real, no por haber escrito
 # código. NO se bumpea en cada commit — solo cuando cambia la superficie pública
 # (__all__) de forma que un consumidor necesite enterarse.
-version = "0.0.5"
+version = "0.0.6"
 description = "Cliente HTTP oficial para arca-service (facturación electrónica ARCA/AFIP) — mTLS + API key, sin dependencias pesadas."
 readme = "README.md"
 requires-python = ">=3.9"

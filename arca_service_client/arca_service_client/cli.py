@@ -169,6 +169,7 @@ def _request_invite(args: argparse.Namespace) -> int:
     try:
         resp = httpx.post(
             f"{base_url.rstrip('/')}/api/v1/signup-requests",
+            headers={"Accept": "application/json"},
             json={
                 "name": name,
                 "slug": slug,
@@ -182,7 +183,7 @@ def _request_invite(args: argparse.Namespace) -> int:
         return 1
 
     if resp.status_code != 201:
-        print(f"El pedido falló ({resp.status_code}): {_detail(resp)}", file=sys.stderr)
+        print(f"El pedido falló ({resp.status_code}): {_mensaje_error(resp)}", file=sys.stderr)
         return 1
 
     try:
@@ -223,7 +224,7 @@ def _login(args: argparse.Namespace) -> int:
     try:
         resp = httpx.post(
             f"{base_url.rstrip('/')}/api/v1/signup",
-            headers={"Authorization": f"Bearer {args.invite}"},
+            headers={"Accept": "application/json", "Authorization": f"Bearer {args.invite}"},
             json={
                 "name": name,
                 "slug": slug,
@@ -238,7 +239,7 @@ def _login(args: argparse.Namespace) -> int:
         return 1
 
     if resp.status_code != 201:
-        print(f"El signup falló ({resp.status_code}): {_detail(resp)}", file=sys.stderr)
+        print(f"El signup falló ({resp.status_code}): {_mensaje_error(resp)}", file=sys.stderr)
         return 1
 
     try:
@@ -334,7 +335,7 @@ def _import_credencial(args: argparse.Namespace) -> int:
         return 1
     except ArcaServiceError as exc:
         print(
-            f"arca-service rechazó la importación ({exc.status_code}): {exc.detail}",
+            f"arca-service rechazó la importación ({exc.status_code} {exc.code}): {exc.message}",
             file=sys.stderr,
         )
         return 1
@@ -390,11 +391,19 @@ def _cert_not_after(cert_pem: str) -> str:
     return cert.not_valid_after.isoformat() + "Z"
 
 
-def _detail(resp: httpx.Response) -> str:
+def _mensaje_error(resp: httpx.Response) -> str:
+    """`error.message` del sobre `{"error": {"type", "code", "message", ...}}` -- mismo
+    sobre que `ArcaServiceClient`/`AsyncArcaServiceClient` (ver `exceptions.py`), pero
+    reimplementado acá en vez de importado: `request-invite`/`login` corren ANTES de
+    tener ningún `ArcaServiceClient` (ni mTLS ni API key todavía), sobre `httpx` crudo,
+    y no vale la pena acoplar este módulo al parseo interno de `client.py` por una
+    función tan chica. Si el body no tiene esa forma (proxy intermedio, HTML de error),
+    no rompe acá -- cae al texto crudo en vez de un `KeyError`/`JSONDecodeError` que
+    ocultaría el error real detrás de OTRO error."""
     try:
         data = resp.json()
-        if isinstance(data, dict) and "detail" in data:
-            return str(data["detail"])
+        if isinstance(data, dict) and isinstance(data.get("error"), dict):
+            return str(data["error"].get("message", data["error"]))
     except ValueError:
         pass
     return resp.text

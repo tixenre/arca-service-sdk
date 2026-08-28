@@ -22,21 +22,27 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import httpx
 
-    from .models import ComprobanteInput
+    from .models import ComprobanteInput, SesionEmbebidaInput
 
 import httpx as _httpx
 
 from .crypto import seal
 from .exceptions import (
+    AfipError,
+    AfipErrorDetail,
+    AfipRechazoError,
     AfipUnavailableError,
     ArcaServiceError,
-    ArcaServiceServerError,
     BonificadoLimiteError,
+    ConfiguracionError,
     IdempotencyConflictError,
+    InternoError,
+    NotaExcedeComprobanteError,
     NotFoundError,
+    PuntoVentaNoHabilitadoError,
     RateLimitedError,
-    ServiceNotReadyError,
-    ValidationError,
+    RequestError,
+    ServicioNoDisponibleError,
 )
 from .local_config import DEFAULT_PROFILE, load_profile
 from .models import (
@@ -52,6 +58,7 @@ from .models import (
     PersonaArca,
     PreviewResult,
     PuntosVentaResult,
+    SesionEmbebidaResult,
 )
 
 _TIMEOUT_SECONDS_DEFAULT = 30.0
@@ -112,7 +119,12 @@ class ArcaServiceClient:
         self._http = _httpx.Client(
             base_url=f"{self.base_url.rstrip('/')}/api/v1",
             verify=ssl_context,
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            # `Accept` explícito y no el default de httpx (`*/*`) -- sin esto, un 404 de
+            # ruta inexistente (o cualquier error servido antes de llegar a la capa JSON
+            # de la API) vuelve como texto plano ("Not Found") en vez del sobre
+            # `{"error": {...}}`, y `_parse_error_envelope` no tiene nada que parsear.
+            # Comprobado contra producción, no una suposición.
+            headers={"Accept": "application/json", "Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout,
         )
 
@@ -342,13 +354,59 @@ class ArcaServiceClient:
         return EmisionResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
+    # Sesión embebida (iframe) — puerta de entrada ALTERNATIVA a
+    # emitir_comprobante/emitir_nota_credito/emitir_nota_debito de arriba,
+    # para cuando tu Plataforma sabe cuánto facturar pero no a quién: el
+    # comprador completa el receptor él mismo en un <iframe> que sirve
+    # arca-service. Mismo body que ComprobanteInput/emitir_* pero SIN
+    # receptor (ver SesionEmbebidaInput) -- no reemplaza a los métodos de
+    # arriba, es una puerta más. El resto del comprobante (moneda, importes,
+    # items) se valida en ESTE request, así que un ítem mal armado da error
+    # acá y no media hora después con alguien mirando un iframe que no carga.
+    # ------------------------------------------------------------------
+
+    def crear_sesion_embebida_comprobante(
+        self, external_ref: str, comprobante: SesionEmbebidaInput
+    ) -> SesionEmbebidaResult:
+        resp = self._http.post(
+            f"/clientes/{external_ref}/comprobantes/sesion-embebida",
+            json=comprobante.to_payload(),
+        )
+        _raise_for_status(resp)
+        return SesionEmbebidaResult._from_json(resp.json())
+
+    def crear_sesion_embebida_nota_credito(
+        self, external_ref: str, nota_credito: SesionEmbebidaInput
+    ) -> SesionEmbebidaResult:
+        """`nota_credito.comprobante_asociado` es obligatorio del lado servidor, igual
+        que en `emitir_nota_credito` -- ver el docstring de `ComprobanteInput`."""
+        resp = self._http.post(
+            f"/clientes/{external_ref}/notas-credito/sesion-embebida",
+            json=nota_credito.to_payload(),
+        )
+        _raise_for_status(resp)
+        return SesionEmbebidaResult._from_json(resp.json())
+
+    def crear_sesion_embebida_nota_debito(
+        self, external_ref: str, nota_debito: SesionEmbebidaInput
+    ) -> SesionEmbebidaResult:
+        """Igual que `crear_sesion_embebida_nota_credito` -- `comprobante_asociado`
+        obligatorio."""
+        resp = self._http.post(
+            f"/clientes/{external_ref}/notas-debito/sesion-embebida",
+            json=nota_debito.to_payload(),
+        )
+        _raise_for_status(resp)
+        return SesionEmbebidaResult._from_json(resp.json())
+
+    # ------------------------------------------------------------------
     # Lote — colapsa N comprobantes en un solo request HTTP (crear las filas
     # es rápido, nunca toca AFIP acá tampoco: el resultado real llega igual
     # por polling/webhook, uno por ítem). SIEMPRE 200 con el resultado de
     # CADA ítem adentro (`LoteItemResult.ok`/`.error`) — un ítem con
     # `idempotency_key` en conflicto o payload inválido no aborta a los
     # demás, así que esto NUNCA levanta `IdempotencyConflictError`/
-    # `ValidationError` por un ítem puntual (sí por el lote entero: más de
+    # `RequestError` por un ítem puntual (sí por el lote entero: más de
     # 200 ítems, o falta el campo — eso sigue siendo un 422 real, `_raise_for_status`
     # lo cubre igual).
     # ------------------------------------------------------------------
@@ -453,14 +511,81 @@ class ArcaServiceClient:
         return EmbedTokenResult._from_json(resp.json())
 
 
+# `code` -> excepción, solo para los que vale la pena distinguir sin obligar a mirar
+# `.code` a mano (ver exceptions.py). Deliberadamente NO exhaustiva -- MIGRACION.md,
+# punto 1: "la lista de code crece, los cuatro type no". Un `code` que no está acá cae en
+# la excepción de su `.type` (_EXCEPCION_POR_TYPE, abajo), nunca en un catch-all sin
+# tipar.
+_EXCEPCION_POR_CODE: dict[str, type[ArcaServiceError]] = {
+    "no_encontrado": NotFoundError,
+    "idempotency_key_reusada": IdempotencyConflictError,
+    "rate_limit": RateLimitedError,
+    "punto_venta_no_habilitado": PuntoVentaNoHabilitadoError,
+    "nota_excede_comprobante": NotaExcedeComprobanteError,
+    "afip_rechazo": AfipRechazoError,
+    "afip_sin_respuesta": AfipUnavailableError,
+    "afip_respuesta_ilegible": AfipUnavailableError,
+    "servicio_no_disponible": ServicioNoDisponibleError,
+}
+
+# `type` -> excepción genérica, para cualquier `code` que _EXCEPCION_POR_CODE no
+# reconozca. Estos CUATRO son la única parte de este mapeo que arca-service garantiza
+# estable (ver exceptions.py) -- por eso el fallback si ni el `type` viniera reconocible
+# (respuesta corrupta) es InternoError, no una excepción sin tipar.
+_EXCEPCION_POR_TYPE: dict[str, type[ArcaServiceError]] = {
+    "request": RequestError,
+    "configuracion": ConfiguracionError,
+    "afip": AfipError,
+    "interno": InternoError,
+}
+
+
+@dataclass(frozen=True)
+class _ErrorEnvelope:
+    type: str
+    code: str
+    message: str
+    param: str | None
+    afip: tuple[AfipErrorDetail, ...] | None
+
+
+def _parse_error_envelope(resp: httpx.Response) -> _ErrorEnvelope:
+    """Lee `{"error": {"type", "code", "message", "param"?, "afip"?}}` -- el sobre único
+    de toda la API (ver exceptions.py). Si el body no tiene esa forma (un proxy
+    intermedio devolviendo texto/HTML, por ejemplo si alguna vez faltara el header
+    `Accept: application/json` que este cliente siempre manda -- comprobado contra
+    producción: sin ese header un 404 vuelve como texto plano), no rompe acá: cae a
+    `type="interno"`/`code=""` con el texto crudo en `message`, en vez de un
+    `KeyError`/`JSONDecodeError` que ocultaría el error real detrás de OTRO error."""
+    try:
+        error = resp.json()["error"]
+        afip_bruto = error.get("afip")
+        afip = (
+            tuple(AfipErrorDetail(codigo=a["codigo"], mensaje=a["mensaje"]) for a in afip_bruto)
+            if afip_bruto
+            else None
+        )
+        return _ErrorEnvelope(
+            type=error["type"],
+            code=error["code"],
+            message=error["message"],
+            param=error.get("param"),
+            afip=afip,
+        )
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return _ErrorEnvelope(type="interno", code="", message=resp.text, param=None, afip=None)
+
+
 def _raise_for_status(
     resp: httpx.Response, *, conflict_error: type[ArcaServiceError] = IdempotencyConflictError
 ) -> None:
-    """Traduce un `resp` con status >= 400 a `arca_service_client.exceptions`. Función de
-    MÓDULO (no un método) a propósito -- no usa `self` para nada, y
-    `AsyncArcaServiceClient` (`async_client.py`) la reusa tal cual: el mapeo status ->
-    excepción es IDÉNTICO entre el cliente sync y el async, la única diferencia real
-    entre los dos es el transporte (`httpx.Client` vs `httpx.AsyncClient`), no esto.
+    """Traduce un `resp` con status >= 400 a `arca_service_client.exceptions`, ramificando
+    por `error.code`/`error.type` -- nunca por `status_code` (dos `code` bien distintos
+    pueden compartir status, ej. `credencial_rechazada` y `punto_venta_no_habilitado` son
+    los dos 422; ver MIGRACION.md punto 1). Función de MÓDULO (no un método) a propósito
+    -- no usa `self` para nada, y `AsyncArcaServiceClient` (`async_client.py`) la reusa
+    tal cual: el mapeo es IDÉNTICO entre el cliente sync y el async, la única diferencia
+    real entre los dos es el transporte (`httpx.Client` vs `httpx.AsyncClient`), no esto.
 
     Fallas de TRANSPORTE (timeout, conexión rechazada, DNS, TLS) NO se envuelven acá --
     se dejan propagar como las excepciones nativas de httpx
@@ -468,46 +593,34 @@ def _raise_for_status(
     respondió que no" con "ni pudimos preguntarle" perdería justo la distinción que hace
     útil tener excepciones tipadas.
 
-    `conflict_error`: qué tipo levantar en un 409 — por default
-    `IdempotencyConflictError` (el caso general, casi todo el resto de la API), pero
-    `set_bonificado` pasa `BonificadoLimiteError` porque SU 409 es un tipo de conflicto
-    totalmente distinto (circuit-breaker, no idempotencia) y confundir los dos tipos
-    rompería a cualquier caller que discrimine por subtipo (ver exceptions.py)."""
+    `conflict_error`: qué tipo levantar en un 409 — por default `IdempotencyConflictError`
+    (el caso general, casi todo el resto de la API), pero `set_bonificado` pasa
+    `BonificadoLimiteError` porque SU 409 es un conflicto de negocio totalmente distinto
+    (circuit-breaker, no idempotencia). Elegido por SITIO DE LLAMADA y no por `code` --
+    hoy arca-service todavía no distingue los dos 409 en el sobre (los dos traen
+    `code: "idempotency_key_reusada"`), así que el `code` no alcanza para separarlos."""
     if resp.status_code < 400:
         return
-    detail = _extraer_detail(resp)
-    if resp.status_code == 404:
-        raise NotFoundError(detail, status_code=404, response=resp)
+
+    envelope = _parse_error_envelope(resp)
+
     if resp.status_code == 409:
-        raise conflict_error(detail, status_code=409, response=resp)
-    if resp.status_code == 422:
-        raise ValidationError(detail, status_code=422, response=resp)
-    if resp.status_code == 429:
-        retry_after = resp.headers.get("Retry-After")
-        raise RateLimitedError(
-            detail,
-            status_code=429,
-            response=resp,
-            retry_after=int(retry_after) if retry_after is not None else None,
+        excepcion = conflict_error
+    else:
+        excepcion = _EXCEPCION_POR_CODE.get(envelope.code) or _EXCEPCION_POR_TYPE.get(
+            envelope.type, InternoError
         )
-    if resp.status_code == 502:
-        raise AfipUnavailableError(detail, status_code=502, response=resp)
-    if resp.status_code == 503:
-        raise ServiceNotReadyError(detail, status_code=503, response=resp)
-    raise ArcaServiceServerError(detail, status_code=resp.status_code, response=resp)
 
-
-def _extraer_detail(resp: httpx.Response) -> str:
-    """El body de error de arca-service siempre es `{"detail": "string"}` -- incluso
-    cuando el error real es una validación con errores por campo, arca-service lo
-    aplana a un único string antes de responder. Si algún día no lo fuera (respuesta
-    corrupta, proxy intermedio devolviendo HTML de error), no rompe acá — cae al texto
-    crudo en vez de un `KeyError`/`JSONDecodeError` que ocultaría el error real detrás
-    de OTRO error."""
-    try:
-        data = resp.json()
-        if isinstance(data, dict) and "detail" in data:
-            return str(data["detail"])
-    except ValueError:
-        pass
-    return resp.text
+    kwargs: dict = dict(
+        type=envelope.type,
+        code=envelope.code,
+        message=envelope.message,
+        status_code=resp.status_code,
+        param=envelope.param,
+        afip=envelope.afip,
+        response=resp,
+    )
+    if issubclass(excepcion, RateLimitedError):
+        retry_after = resp.headers.get("Retry-After")
+        kwargs["retry_after"] = int(retry_after) if retry_after is not None else None
+    raise excepcion(**kwargs)

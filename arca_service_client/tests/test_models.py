@@ -6,7 +6,7 @@ en silencio."""
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from arca_service_client.models import (
@@ -18,6 +18,8 @@ from arca_service_client.models import (
     Opcional,
     PersonaArca,
     PreviewResult,
+    SesionEmbebidaInput,
+    SesionEmbebidaResult,
     Tributo,
 )
 
@@ -176,6 +178,91 @@ def test_emision_result_from_json_issued():
     assert result.numero == 42
     assert result.cae_vencimiento == date(2026, 8, 28)
     assert result.webhook_delivered is True
+
+
+def test_emision_result_from_json_issued_con_observaciones():
+    """`observaciones` -- comentarios de AFIP sobre un comprobante que SÍ autorizó (ver
+    MIGRACION.md, punto 4): campo nuevo al lado de `errores`, no un reemplazo."""
+    data = {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "idempotency_key": "factura-1",
+        "tipo": "FACTURA",
+        "estado": "issued",
+        "numero": 42,
+        "cae": "71234567890123",
+        "errores": None,
+        "observaciones": ["10063: el documento del receptor no figura en el padrón"],
+    }
+    result = EmisionResult._from_json(data)
+    assert result.estado == "issued"
+    assert result.errores is None
+    assert result.observaciones == ["10063: el documento del receptor no figura en el padrón"]
+
+
+def test_emision_result_from_json_sin_observaciones_queda_none():
+    """El campo es opcional -- una respuesta que no lo manda (o lo manda `null`) no
+    debe romper el parseo."""
+    data = {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "idempotency_key": "factura-1",
+        "tipo": "FACTURA",
+        "estado": "pending",
+    }
+    result = EmisionResult._from_json(data)
+    assert result.observaciones is None
+
+
+def test_emision_result_from_json_error_con_errores():
+    data = {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "idempotency_key": "factura-1",
+        "tipo": "FACTURA",
+        "estado": "error",
+        "errores": ["10016: La fecha del comprobante está fuera de rango"],
+    }
+    result = EmisionResult._from_json(data)
+    assert result.estado == "error"
+    assert result.errores == ["10016: La fecha del comprobante está fuera de rango"]
+
+
+def test_sesion_embebida_input_to_payload_no_incluye_receptor():
+    payload = SesionEmbebidaInput(
+        idempotency_key="factura-1",
+        concepto=1,
+        emisor_condicion_iva=1,
+        fecha=date(2026, 8, 18),
+    ).to_payload()
+    assert payload["idempotency_key"] == "factura-1"
+    assert payload["fecha"] == "2026-08-18"
+    for campo in (
+        "receptor_doc_tipo",
+        "receptor_doc_nro",
+        "receptor_condicion_iva",
+        "receptor_nombre",
+        "receptor_domicilio",
+    ):
+        assert campo not in payload
+
+
+def test_sesion_embebida_input_to_payload_incluye_comprobante_asociado():
+    payload = SesionEmbebidaInput(
+        idempotency_key="nc-1",
+        concepto=1,
+        emisor_condicion_iva=1,
+        fecha=date(2026, 8, 18),
+        comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
+    ).to_payload()
+    assert payload["comprobante_asociado"] == {"tipo": 1, "punto_venta": 3, "numero": 100}
+
+
+def test_sesion_embebida_result_from_json():
+    data = {
+        "embed_url": "https://arca.test/embed/facturar/xyz",
+        "expires_at": "2026-08-21T22:30:00.000000Z",
+    }
+    result = SesionEmbebidaResult._from_json(data)
+    assert result.embed_url == "https://arca.test/embed/facturar/xyz"
+    assert result.expires_at == datetime(2026, 8, 21, 22, 30, tzinfo=timezone.utc)
 
 
 def test_persona_arca_from_json_minima():

@@ -119,12 +119,37 @@ def test_request_invite_no_manda_ningun_authorization(httpx_mock):
     assert "authorization" not in {h.lower() for h in request.headers.keys()}
 
 
+def test_request_invite_manda_accept_application_json(httpx_mock):
+    # Sin este header, un error del servidor vuelve como texto plano en vez del sobre
+    # `{"error": {...}}` -- ver `_mensaje_error` en cli.py y el mismo criterio en
+    # client.py. `request-invite`/`login` corren sobre httpx crudo, así que este header
+    # no viene gratis de ningún cliente compartido.
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_REQUESTS_URL,
+        status_code=201,
+        json={"id": "req-123"},
+    )
+
+    cli.main(_request_invite_args())
+
+    [request] = httpx_mock.get_requests()
+    assert request.headers["accept"] == "application/json"
+
+
 def test_request_invite_rechazado_por_el_server_falla_claro(httpx_mock, capsys):
     httpx_mock.add_response(
         method="POST",
         url=_SIGNUP_REQUESTS_URL,
         status_code=422,
-        json={"detail": "contact_email: no es un email válido"},
+        json={
+            "error": {
+                "type": "request",
+                "code": "campo_invalido",
+                "message": "contact_email: no es un email válido",
+                "param": "contact_email",
+            }
+        },
     )
 
     exit_code = cli.main(_request_invite_args(**{"--contact-email": "no-es-un-email"}))
@@ -232,6 +257,16 @@ def test_login_manda_un_csr_real_con_el_cn_correcto_y_nunca_una_clave_privada(
     assert cn.value == "rambla.arca-service"
 
 
+def test_login_manda_accept_application_json(isolated_config_dir, client_cert_pem, httpx_mock):
+    cert_pem, _ignorado = client_cert_pem
+    _mock_signup_ok(httpx_mock, cert_pem)
+
+    cli.main(_login_args())
+
+    [request] = httpx_mock.get_requests()
+    assert request.headers["accept"] == "application/json"
+
+
 def test_login_sin_base_url_ni_env_var_falla_claro(monkeypatch, capsys):
     monkeypatch.delenv("ARCA_SERVICE_BASE_URL", raising=False)
 
@@ -281,7 +316,13 @@ def test_login_signup_rechazado_no_guarda_nada(isolated_config_dir, httpx_mock):
         method="POST",
         url=_SIGNUP_URL,
         status_code=403,
-        json={"detail": "Código de invitación inválido."},
+        json={
+            "error": {
+                "type": "request",
+                "code": "invitacion_invalida",
+                "message": "Código de invitación inválido.",
+            }
+        },
     )
 
     exit_code = cli.main(_login_args(**{"--invite": "codigo-malo"}))
@@ -543,7 +584,13 @@ def test_import_rechazado_por_arca_service_falla_claro(
         method="POST",
         url=f"{_API}/clientes/cliente-1/credencial/importar",
         status_code=422,
-        json={"detail": "El certificado no corresponde a la clave privada enviada."},
+        json={
+            "error": {
+                "type": "configuracion",
+                "code": "credencial_rechazada",
+                "message": "El certificado no corresponde a la clave privada enviada.",
+            }
+        },
     )
 
     exit_code = cli.main(_import_args(cert_path, key_path))

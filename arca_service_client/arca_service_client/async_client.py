@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
 
-    from .models import ComprobanteInput
+    from .models import ComprobanteInput, SesionEmbebidaInput
 
 import httpx as _httpx
 
@@ -42,6 +42,7 @@ from .models import (
     PersonaArca,
     PreviewResult,
     PuntosVentaResult,
+    SesionEmbebidaResult,
 )
 
 
@@ -88,7 +89,9 @@ class AsyncArcaServiceClient:
         self._http = _httpx.AsyncClient(
             base_url=f"{self.base_url.rstrip('/')}/api/v1",
             verify=ssl_context,
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            # Ver ArcaServiceClient.__post_init__ (client.py) para el porqué de este
+            # header explícito -- mismo motivo acá.
+            headers={"Accept": "application/json", "Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout,
         )
 
@@ -283,6 +286,42 @@ class AsyncArcaServiceClient:
         resp = await self._http.get(f"/clientes/{external_ref}/comprobantes/{idempotency_key}")
         _raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
+
+    # ------------------------------------------------------------------
+    # Sesión embebida (iframe) -- ver
+    # ArcaServiceClient.crear_sesion_embebida_comprobante (client.py) para
+    # el detalle completo, es la misma doc.
+    # ------------------------------------------------------------------
+
+    async def crear_sesion_embebida_comprobante(
+        self, external_ref: str, comprobante: SesionEmbebidaInput
+    ) -> SesionEmbebidaResult:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/comprobantes/sesion-embebida",
+            json=comprobante.to_payload(),
+        )
+        _raise_for_status(resp)
+        return SesionEmbebidaResult._from_json(resp.json())
+
+    async def crear_sesion_embebida_nota_credito(
+        self, external_ref: str, nota_credito: SesionEmbebidaInput
+    ) -> SesionEmbebidaResult:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/notas-credito/sesion-embebida",
+            json=nota_credito.to_payload(),
+        )
+        _raise_for_status(resp)
+        return SesionEmbebidaResult._from_json(resp.json())
+
+    async def crear_sesion_embebida_nota_debito(
+        self, external_ref: str, nota_debito: SesionEmbebidaInput
+    ) -> SesionEmbebidaResult:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/notas-debito/sesion-embebida",
+            json=nota_debito.to_payload(),
+        )
+        _raise_for_status(resp)
+        return SesionEmbebidaResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
     # Lote — ver `ArcaServiceClient.emitir_lote_comprobantes` para el

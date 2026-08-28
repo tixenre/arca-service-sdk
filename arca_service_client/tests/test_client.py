@@ -17,17 +17,24 @@ from decimal import Decimal
 import pytest
 
 from arca_service_client import (
+    AfipError,
+    AfipErrorDetail,
+    AfipRechazoError,
     AfipUnavailableError,
     ArcaServiceClient,
-    ArcaServiceServerError,
     BonificadoLimiteError,
     ComprobanteAsociado,
     ComprobanteInput,
+    ConfiguracionError,
     IdempotencyConflictError,
+    InternoError,
+    NotaExcedeComprobanteError,
     NotFoundError,
+    PuntoVentaNoHabilitadoError,
     RateLimitedError,
-    ServiceNotReadyError,
-    ValidationError,
+    RequestError,
+    ServicioNoDisponibleError,
+    SesionEmbebidaInput,
 )
 
 _BASE_URL = "https://arca.test"
@@ -63,6 +70,25 @@ def _comprobante(**overrides):
     return ComprobanteInput(**kwargs)
 
 
+def _sesion_embebida(**overrides):
+    kwargs = dict(
+        idempotency_key="factura-1",
+        concepto=1,
+        emisor_condicion_iva=1,
+        fecha=date(2026, 8, 18),
+        importe_neto=Decimal("1000.00"),
+        alicuota_unica=5,
+    )
+    kwargs.update(overrides)
+    return SesionEmbebidaInput(**kwargs)
+
+
+def _error(type: str, code: str, message: str, **extra):
+    """Arma `{"error": {...}}` -- el sobre único de toda la API desde esta migración
+    (ver MIGRACION.md, punto 1). `**extra` para `param`/`afip` cuando aplican."""
+    return {"error": {"type": type, "code": code, "message": message, **extra}}
+
+
 # ---------------------------------------------------------------------------
 # base_url / auth
 # ---------------------------------------------------------------------------
@@ -94,6 +120,20 @@ def test_manda_authorization_bearer_con_la_api_key(client, httpx_mock):
     client.get_comprobante("cliente-1", "factura-1")
 
 
+def test_manda_accept_application_json(client, httpx_mock):
+    """Sin este header, un 404 de ruta inexistente vuelve como texto plano ("Not
+    Found") en vez del sobre `{"error": {...}}`, y `_parse_error_envelope` se queda sin
+    nada que parsear -- comprobado contra producción (`arca.mancino.dev`), no una
+    suposición. Este cliente lo manda SIEMPRE, no solo cuando espera un error."""
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
+        match_headers={"Accept": "application/json"},
+        json={"id": "x", "idempotency_key": "factura-1", "tipo": "FACTURA", "estado": "pending"},
+    )
+    client.get_comprobante("cliente-1", "factura-1")
+
+
 def test_context_manager_cierra_el_cliente_http(client_cert_files):
     cert_path, key_path = client_cert_files
     with ArcaServiceClient(
@@ -119,15 +159,17 @@ def test_por_cuit(client, httpx_mock):
     assert result.external_ref == "cliente-1"
 
 
-def test_por_cuit_cuit_invalido_levanta_validation_error(client, httpx_mock):
+def test_por_cuit_cuit_invalido_levanta_request_error(client, httpx_mock):
     httpx_mock.add_response(
         method="POST",
         url=f"{_API}/clientes/por-cuit",
         status_code=422,
-        json={"detail": "'123' no es un CUIT/CUIL válido."},
+        json=_error("request", "campo_invalido", "'123' no es un CUIT/CUIL válido.", param="cuit"),
     )
-    with pytest.raises(ValidationError, match="CUIT/CUIL válido"):
+    with pytest.raises(RequestError, match="CUIT/CUIL válido") as exc_info:
         client.por_cuit("123")
+    assert exc_info.value.code == "campo_invalido"
+    assert exc_info.value.param == "cuit"
 
 
 def test_set_bonificado_activar(client, httpx_mock):
@@ -158,12 +200,18 @@ def test_set_bonificado_409_levanta_bonificado_limite_error_no_idempotency_confl
     """El 409 de `set_bonificado` es un tipo DISTINTO al de idempotencia (ver
     `BonificadoLimiteError` en exceptions.py) -- este test existe específicamente para
     que un futuro cambio no lo confunda con `IdempotencyConflictError` sin que nada lo
-    note (los dos comparten status_code, solo el tipo distingue)."""
+    note (los dos comparten status_code, y hoy arca-service ni siquiera los distingue
+    por `code` -- los dos traen `idempotency_key_reusada`, ver el comentario en
+    `_raise_for_status` -- así que la única señal real es el SITIO DE LLAMADA)."""
     httpx_mock.add_response(
         method="PUT",
         url=f"{_API}/clientes/cliente-1/bonificado",
         status_code=409,
-        json={"detail": "Se alcanzó el límite de seguridad de bonificados para esta plataforma."},
+        json=_error(
+            "request",
+            "idempotency_key_reusada",
+            "Se alcanzó el límite de seguridad de bonificados para esta plataforma.",
+        ),
     )
     with pytest.raises(BonificadoLimiteError) as exc_info:
         client.set_bonificado("cliente-1", True)
@@ -176,7 +224,7 @@ def test_set_bonificado_404_cliente_no_vinculado_levanta_not_found_error(client,
         method="PUT",
         url=f"{_API}/clientes/cliente-1/bonificado",
         status_code=404,
-        json={"detail": "Cliente no encontrado."},
+        json=_error("request", "no_encontrado", "Cliente no encontrado."),
     )
     with pytest.raises(NotFoundError):
         client.set_bonificado("cliente-1", True)
@@ -405,6 +453,114 @@ def test_get_comprobante_issued(client, httpx_mock):
     assert result.cae == "71234567890123"
 
 
+def test_get_comprobante_con_observaciones(client, httpx_mock):
+    """`observaciones` -- comentarios de AFIP sobre un comprobante que SÍ autorizó (ver
+    MIGRACION.md, punto 4). No son `errores`: la emisión sigue `issued`."""
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
+        json={
+            "id": "x",
+            "idempotency_key": "factura-1",
+            "tipo": "FACTURA",
+            "estado": "issued",
+            "numero": 42,
+            "cae": "71234567890123",
+            "errores": None,
+            "observaciones": ["10063: el documento del receptor no figura en el padrón"],
+        },
+    )
+    result = client.get_comprobante("cliente-1", "factura-1")
+    assert result.estado == "issued"
+    assert result.errores is None
+    assert result.observaciones == ["10063: el documento del receptor no figura en el padrón"]
+
+
+# ---------------------------------------------------------------------------
+# Sesión embebida (iframe) -- puerta de entrada alternativa a emitir_*, sin
+# receptor (lo completa el comprador en el iframe). Ver MIGRACION.md, punto 5.
+# ---------------------------------------------------------------------------
+
+
+def test_crear_sesion_embebida_comprobante(client, httpx_mock):
+    capturado = {}
+
+    def _responder(request):
+        import json as _json
+
+        capturado["body"] = _json.loads(request.content)
+        return __import__("httpx").Response(
+            201,
+            json={
+                "embed_url": "https://arca.test/embed/facturar/xyz",
+                "expires_at": "2026-08-21T22:30:00.000000Z",
+            },
+        )
+
+    httpx_mock.add_callback(
+        _responder,
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes/sesion-embebida",
+    )
+
+    result = client.crear_sesion_embebida_comprobante("cliente-1", _sesion_embebida())
+
+    assert result.embed_url == "https://arca.test/embed/facturar/xyz"
+    assert result.expires_at == datetime(2026, 8, 21, 22, 30, tzinfo=timezone.utc)
+    # Sin receptor -- eso lo completa el comprador adentro del iframe, no esta llamada.
+    assert "receptor_doc_tipo" not in capturado["body"]
+    assert "receptor_doc_nro" not in capturado["body"]
+    assert "receptor_condicion_iva" not in capturado["body"]
+
+
+def test_crear_sesion_embebida_nota_credito_manda_al_endpoint_de_notas_credito(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-credito/sesion-embebida",
+        status_code=201,
+        json={
+            "embed_url": "https://arca.test/embed/facturar/nc-xyz",
+            "expires_at": "2026-08-21T22:30:00.000000Z",
+        },
+    )
+    nota = _sesion_embebida(
+        idempotency_key="nc-1",
+        comprobante_asociado=ComprobanteAsociado(tipo=3, punto_venta=3, numero=100),
+    )
+    result = client.crear_sesion_embebida_nota_credito("cliente-1", nota)
+    assert result.embed_url == "https://arca.test/embed/facturar/nc-xyz"
+
+
+def test_crear_sesion_embebida_nota_debito_manda_al_endpoint_de_notas_debito(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-debito/sesion-embebida",
+        status_code=201,
+        json={
+            "embed_url": "https://arca.test/embed/facturar/nd-xyz",
+            "expires_at": "2026-08-21T22:30:00.000000Z",
+        },
+    )
+    nota = _sesion_embebida(
+        idempotency_key="nd-1",
+        comprobante_asociado=ComprobanteAsociado(tipo=2, punto_venta=3, numero=100),
+    )
+    result = client.crear_sesion_embebida_nota_debito("cliente-1", nota)
+    assert result.embed_url == "https://arca.test/embed/facturar/nd-xyz"
+
+
+def test_sesion_embebida_input_to_payload_no_tiene_campos_de_receptor():
+    payload = _sesion_embebida().to_payload()
+    for campo in (
+        "receptor_doc_tipo",
+        "receptor_doc_nro",
+        "receptor_condicion_iva",
+        "receptor_nombre",
+        "receptor_domicilio",
+    ):
+        assert campo not in payload
+
+
 # ---------------------------------------------------------------------------
 # Documento renderizado
 # ---------------------------------------------------------------------------
@@ -441,6 +597,20 @@ def test_get_comprobante_imagen(client, httpx_mock):
     assert client.get_comprobante_imagen("cliente-1", "factura-1") == b"\x89PNG..."
 
 
+def test_get_comprobante_pdf_503_levanta_servicio_no_disponible_error(client, httpx_mock):
+    """El renderizador caído no dice nada sobre si la EMISIÓN falló -- el CAE está, y
+    `get_comprobante`/el HTML se pueden seguir pidiendo. Ver MIGRACION.md, punto 2."""
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes/factura-1/comprobante.pdf?layout=oficial",
+        status_code=503,
+        json=_error("interno", "servicio_no_disponible", "El renderizador no está disponible."),
+    )
+    with pytest.raises(ServicioNoDisponibleError) as exc_info:
+        client.get_comprobante_pdf("cliente-1", "factura-1")
+    assert isinstance(exc_info.value, InternoError)
+
+
 # ---------------------------------------------------------------------------
 # Vista embebible (iframe)
 # ---------------------------------------------------------------------------
@@ -465,7 +635,7 @@ def test_crear_embed_token_idempotency_key_ajena_levanta_not_found_error(client,
         method="POST",
         url=f"{_API}/clientes/cliente-1/comprobantes/no-existe/embed-token",
         status_code=404,
-        json={"detail": "No encontrado."},
+        json=_error("request", "no_encontrado", "No encontrado."),
     )
     with pytest.raises(NotFoundError):
         client.crear_embed_token("cliente-1", "no-existe")
@@ -492,7 +662,7 @@ def test_crear_conexion_afip_embed_token_external_ref_ajeno_levanta_not_found_er
         method="POST",
         url=f"{_API}/clientes/no-existe/conexion-afip/embed-token",
         status_code=404,
-        json={"detail": "No encontrado."},
+        json=_error("request", "no_encontrado", "No encontrado."),
     )
     with pytest.raises(NotFoundError):
         client.crear_conexion_afip_embed_token("no-existe")
@@ -601,16 +771,18 @@ def test_emitir_lote_notas_debito_manda_la_clave_notas_debito(client, httpx_mock
     assert resultados[0].emision.tipo == "NOTA_DEBITO"
 
 
-def test_emitir_lote_comprobantes_mas_de_200_items_levanta_validation_error(client, httpx_mock):
+def test_emitir_lote_comprobantes_mas_de_200_items_levanta_request_error(client, httpx_mock):
     # El lote entero (no un ítem puntual) SÍ puede fallar — ahí el 422 real
     # de _raise_for_status aplica, distinto del ok:false por-ítem de arriba.
     httpx_mock.add_response(
         method="POST",
         url=f"{_API}/clientes/cliente-1/comprobantes/lote",
         status_code=422,
-        json={"detail": "El lote admite hasta 200 items (recibidos: 201)."},
+        json=_error(
+            "request", "campo_invalido", "El lote admite hasta 200 items (recibidos: 201)."
+        ),
     )
-    with pytest.raises(ValidationError, match="200 items"):
+    with pytest.raises(RequestError, match="200 items"):
         client.emitir_lote_comprobantes("cliente-1", [_comprobante()])
 
 
@@ -637,21 +809,102 @@ def test_reenviar_webhook(client, httpx_mock):
 
 
 # ---------------------------------------------------------------------------
-# Mapeo de errores por status code
+# Sobre de error: {"error": {"type", "code", "message", "param"?, "afip"?}} --
+# ramificar SIEMPRE por `code`/`type`, nunca por status_code a secas (dos code
+# bien distintos pueden compartir status). Ver MIGRACION.md, puntos 1 y 2.
 # ---------------------------------------------------------------------------
 
 
-def test_404_levanta_not_found_error(client, httpx_mock):
+def test_error_expone_type_code_message_param(client, httpx_mock):
+    """El ejemplo exacto de MIGRACION.md, punto 1 -- confirma que los cuatro campos del
+    sobre llegan intactos a la excepción, no solo el texto de `message`."""
     httpx_mock.add_response(
-        method="GET",
-        url=f"{_API}/clientes/cliente-1/comprobantes/no-existe",
-        status_code=404,
-        json={"detail": "Not Found"},
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes",
+        status_code=422,
+        json=_error("request", "campo_invalido", "items: can't be blank", param="items"),
     )
-    with pytest.raises(NotFoundError) as exc_info:
-        client.get_comprobante("cliente-1", "no-existe")
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "Not Found"
+    with pytest.raises(RequestError) as exc_info:
+        client.emitir_comprobante("cliente-1", _comprobante())
+    assert exc_info.value.type == "request"
+    assert exc_info.value.code == "campo_invalido"
+    assert exc_info.value.message == "items: can't be blank"
+    assert exc_info.value.param == "items"
+
+
+def test_code_desconocido_cae_en_la_excepcion_de_su_type(client, httpx_mock):
+    """`code` crece; `type` no (MIGRACION.md, punto 1) -- un `code` que este SDK todavía
+    no conoce no debe romper ni perderse: tiene que caer en la excepción genérica de su
+    `type`, con el `code` real igual accesible en `.code`."""
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes",
+        status_code=422,
+        json=_error("configuracion", "un_code_que_todavia_no_existe", "Trámite pendiente."),
+    )
+    with pytest.raises(ConfiguracionError) as exc_info:
+        client.emitir_comprobante("cliente-1", _comprobante())
+    assert exc_info.value.code == "un_code_que_todavia_no_existe"
+    assert not isinstance(exc_info.value, PuntoVentaNoHabilitadoError)
+
+
+def test_punto_venta_no_habilitado_levanta_configuracion_error(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes",
+        status_code=422,
+        json=_error(
+            "configuracion",
+            "punto_venta_no_habilitado",
+            "El punto de venta 3 no está habilitado en AFIP.",
+        ),
+    )
+    with pytest.raises(PuntoVentaNoHabilitadoError) as exc_info:
+        client.emitir_comprobante("cliente-1", _comprobante())
+    assert isinstance(exc_info.value, ConfiguracionError)
+    assert exc_info.value.status_code == 422
+
+
+def test_nota_excede_comprobante_levanta_request_error_con_param(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-credito",
+        status_code=422,
+        json=_error(
+            "request",
+            "nota_excede_comprobante",
+            "La nota de crédito excede el saldo disponible ($500.00).",
+            param="comprobante_asociado",
+        ),
+    )
+    nota = _comprobante(
+        idempotency_key="nc-1",
+        comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
+    )
+    with pytest.raises(NotaExcedeComprobanteError) as exc_info:
+        client.emitir_nota_credito("cliente-1", nota)
+    assert isinstance(exc_info.value, RequestError)
+    assert exc_info.value.param == "comprobante_asociado"
+
+
+def test_afip_rechazo_expone_los_codigos_de_afip_sin_masticar(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes",
+        status_code=422,
+        json=_error(
+            "afip",
+            "afip_rechazo",
+            "10016: La fecha del comprobante está fuera de rango",
+            afip=[{"codigo": 10016, "mensaje": "La fecha del comprobante está fuera de rango"}],
+        ),
+    )
+    with pytest.raises(AfipRechazoError) as exc_info:
+        client.emitir_comprobante("cliente-1", _comprobante())
+    assert isinstance(exc_info.value, AfipError)
+    assert exc_info.value.afip == (
+        AfipErrorDetail(codigo=10016, mensaje="La fecha del comprobante está fuera de rango"),
+    )
 
 
 def test_409_levanta_idempotency_conflict_error(client, httpx_mock):
@@ -659,21 +912,28 @@ def test_409_levanta_idempotency_conflict_error(client, httpx_mock):
         method="POST",
         url=f"{_API}/clientes/cliente-1/comprobantes",
         status_code=409,
-        json={"detail": "Ya existe un intento con esta idempotency_key pero con datos distintos"},
+        json=_error(
+            "request",
+            "idempotency_key_reusada",
+            "Ya existe un intento con esta idempotency_key pero con datos distintos",
+            param="idempotency_key",
+        ),
     )
     with pytest.raises(IdempotencyConflictError):
         client.emitir_comprobante("cliente-1", _comprobante())
 
 
-def test_422_levanta_validation_error(client, httpx_mock):
+def test_404_levanta_not_found_error(client, httpx_mock):
     httpx_mock.add_response(
-        method="POST",
-        url=f"{_API}/clientes/cliente-1/comprobantes",
-        status_code=422,
-        json={"detail": "'99999999999' no es un CUIT válido."},
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes/no-existe",
+        status_code=404,
+        json=_error("request", "no_encontrado", "Not Found"),
     )
-    with pytest.raises(ValidationError, match="CUIT válido"):
-        client.emitir_comprobante("cliente-1", _comprobante())
+    with pytest.raises(NotFoundError) as exc_info:
+        client.get_comprobante("cliente-1", "no-existe")
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.message == "Not Found"
 
 
 def test_429_levanta_rate_limited_error_con_retry_after(client, httpx_mock):
@@ -682,7 +942,7 @@ def test_429_levanta_rate_limited_error_con_retry_after(client, httpx_mock):
         url=f"{_API}/clientes/cliente-1/comprobantes",
         status_code=429,
         headers={"Retry-After": "7"},
-        json={"detail": "Demasiados requests — respetá Retry-After antes de reintentar."},
+        json=_error("request", "rate_limit", "Demasiados requests — respetá Retry-After."),
     )
     with pytest.raises(RateLimitedError) as exc_info:
         client.emitir_comprobante("cliente-1", _comprobante())
@@ -694,7 +954,7 @@ def test_429_sin_retry_after_header_deja_retry_after_none(client, httpx_mock):
         method="POST",
         url=f"{_API}/clientes/cliente-1/comprobantes",
         status_code=429,
-        json={"detail": "..."},
+        json=_error("request", "rate_limit", "..."),
     )
     with pytest.raises(RateLimitedError) as exc_info:
         client.emitir_comprobante("cliente-1", _comprobante())
@@ -706,47 +966,53 @@ def test_502_levanta_afip_unavailable_error(client, httpx_mock):
         method="GET",
         url=f"{_API}/clientes/cliente-1/credencial/puntos-venta",
         status_code=502,
-        json={"detail": "AFIP no respondió: timeout"},
+        json=_error("afip", "afip_sin_respuesta", "AFIP no respondió: timeout"),
     )
-    with pytest.raises(AfipUnavailableError):
+    with pytest.raises(AfipUnavailableError) as exc_info:
         client.listar_puntos_de_venta("cliente-1")
+    assert isinstance(exc_info.value, AfipError)
 
 
-def test_503_levanta_service_not_ready_error(client, httpx_mock):
+def test_503_levanta_servicio_no_disponible_error(client, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=f"{_API}/envelope/clave-publica",
         status_code=503,
-        json={"detail": "El servicio todavía no tiene un par de claves de envelope configurado."},
+        json=_error(
+            "interno",
+            "servicio_no_disponible",
+            "El servicio todavía no tiene un par de claves de envelope configurado.",
+        ),
     )
-    with pytest.raises(ServiceNotReadyError):
+    with pytest.raises(ServicioNoDisponibleError):
         client.importar_credencial("cliente-1", "20301234563", "cert", "key")
 
 
-def test_500_levanta_arca_service_server_error(client, httpx_mock):
+def test_500_levanta_interno_error(client, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
         status_code=500,
-        json={"detail": "Error interno del servicio."},
+        json=_error("interno", "error_interno", "Error interno del servicio."),
     )
-    with pytest.raises(ArcaServiceServerError):
+    with pytest.raises(InternoError):
         client.get_comprobante("cliente-1", "factura-1")
 
 
-def test_error_sin_body_json_no_rompe_el_parseo_de_detail(client, httpx_mock):
-    """Si el error NO viene como `{"detail": "..."}` (ej. un proxy intermedio devolviendo
-    HTML de error), `_extraer_detail` no debe levantar un error DISTINTO que oculte el
-    original."""
+def test_error_sin_sobre_json_no_rompe_el_parseo(client, httpx_mock):
+    """Si el error NO viene como `{"error": {...}}` (ej. un proxy intermedio devolviendo
+    HTML de error, o faltara el header `Accept`), `_parse_error_envelope` no debe
+    levantar un error DISTINTO que oculte el original -- cae a `InternoError` con el
+    texto crudo en `.message`."""
     httpx_mock.add_response(
         method="GET",
         url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
         status_code=502,
         html="<html>Bad Gateway</html>",
     )
-    with pytest.raises(AfipUnavailableError) as exc_info:
+    with pytest.raises(InternoError) as exc_info:
         client.get_comprobante("cliente-1", "factura-1")
-    assert "Bad Gateway" in exc_info.value.detail
+    assert "Bad Gateway" in exc_info.value.message
 
 
 def _clave_publica_de_test() -> str:
