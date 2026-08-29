@@ -24,6 +24,33 @@ from arca_service_client.models import (
 )
 
 
+def _importes_json(**overrides):
+    d = {
+        "neto": "1000.00",
+        "iva": "0",
+        "no_gravado": "0",
+        "exento": "0",
+        "tributos": "0",
+        "total": "1000.00",
+        "moneda": "PES",
+        "cotizacion": "1",
+    }
+    d.update(overrides)
+    return d
+
+
+def _receptor_json(**overrides):
+    d = {
+        "doc_tipo": {"codigo": 96, "descripcion": "DNI"},
+        "doc_nro": 12345678,
+        "nombre": "",
+        "domicilio": "",
+        "condicion_iva": {"codigo": 5, "descripcion": "Consumidor Final", "fuente": "padron"},
+    }
+    d.update(overrides)
+    return d
+
+
 def _comprobante_minimo(**overrides):
     kwargs = dict(
         idempotency_key="factura-1",
@@ -132,32 +159,52 @@ def test_to_payload_comprobante_asociado_omite_cuit_y_fecha_ausentes():
 
 
 def test_preview_result_from_json():
+    """`comprobante`/`importes` anidados -- confirmado contra
+    `EmisionController.render_preview/1` y su test HTTP (ver `tests/test_contract.py`).
+    Un preview no trae `moneda`/`cotizacion` en `importes` (nada se emitió todavía)."""
     data = {
-        "cbte_tipo": 6,
-        "cbte_letra": "B",
-        "importe_neto": "1000.00",
-        "importe_iva": "210.00",
-        "importe_total": "1210.00",
-        "importe_no_gravado": "0",
-        "importe_exento": "0",
-        "importe_tributos": "0",
+        "comprobante": {"tipo": "factura", "letra": "B", "codigo_afip": 6},
+        "importes": {
+            "neto": "1000.00",
+            "iva": "210.00",
+            "total": "1210.00",
+            "no_gravado": "0",
+            "exento": "0",
+            "tributos": "0",
+        },
     }
     result = PreviewResult._from_json(data)
-    assert result.cbte_letra == "B"
-    assert result.importe_total == Decimal("1210.00")
-    assert isinstance(result.importe_total, Decimal)
+    assert result.comprobante.letra == "B"
+    assert result.comprobante.codigo_afip == 6
+    assert result.importes.total == Decimal("1210.00")
+    assert isinstance(result.importes.total, Decimal)
+    assert result.importes.moneda is None
 
 
 def test_emision_result_from_json_pending():
+    """`comprobante`/`importes`/`receptor` anidados, siempre presentes -- confirmado
+    contra `comprobante_emitido.ex::json/2` y el test HTTP de `POST /comprobantes` (ver
+    `tests/test_contract.py`). `letra`/`codigo_afip`/`numero` en `None` mientras está
+    `pending`: todavía no se le pidió el CAE a AFIP."""
     data = {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "factura-1",
-        "tipo": "FACTURA",
         "estado": "pending",
+        "comprobante": {
+            "tipo": "factura",
+            "letra": None,
+            "codigo_afip": None,
+            "punto_venta": None,
+            "numero": None,
+            "fecha": "2026-08-18",
+        },
+        "importes": _importes_json(),
+        "receptor": _receptor_json(),
     }
     result = EmisionResult._from_json(data)
     assert result.estado == "pending"
-    assert result.numero is None
+    assert result.comprobante.tipo == "factura"
+    assert result.comprobante.numero is None
     assert result.cae == ""
     assert result.webhook_delivered is None
 
@@ -166,18 +213,53 @@ def test_emision_result_from_json_issued():
     data = {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "factura-1",
-        "tipo": "FACTURA",
         "estado": "issued",
-        "numero": 42,
+        "comprobante": {
+            "tipo": "factura",
+            "letra": "B",
+            "codigo_afip": 6,
+            "punto_venta": 3,
+            "numero": 42,
+            "fecha": "2026-08-18",
+        },
+        "importes": _importes_json(),
+        "receptor": _receptor_json(),
         "cae": "71234567890123",
         "cae_vencimiento": "2026-08-28",
         "qr_url": "https://...",
         "webhook_delivered": True,
     }
     result = EmisionResult._from_json(data)
-    assert result.numero == 42
+    assert result.comprobante.numero == 42
     assert result.cae_vencimiento == date(2026, 8, 28)
     assert result.webhook_delivered is True
+
+
+def test_emision_result_from_json_receptor_completo():
+    """`receptor` -- espejo exacto de `comprobante_emitido.ex::receptor/1`: `doc_tipo`/
+    `condicion_iva` son sub-objetos con código+descripción, `doc_nro` viaja como
+    número."""
+    data = {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "idempotency_key": "factura-1",
+        "estado": "issued",
+        "comprobante": {"tipo": "factura", "fecha": "2026-08-18"},
+        "importes": _importes_json(),
+        "receptor": {
+            "doc_tipo": {"codigo": 96, "descripcion": "DNI"},
+            "doc_nro": 20111222,
+            "nombre": "Juan Pérez",
+            "domicilio": "Calle Falsa 123",
+            "condicion_iva": {"codigo": 5, "descripcion": "Consumidor Final", "fuente": "padron"},
+        },
+    }
+    result = EmisionResult._from_json(data)
+    assert result.receptor.doc_tipo.codigo == 96
+    assert result.receptor.doc_tipo.descripcion == "DNI"
+    assert result.receptor.doc_nro == 20_111_222
+    assert isinstance(result.receptor.doc_nro, int)
+    assert result.receptor.nombre == "Juan Pérez"
+    assert result.receptor.condicion_iva.fuente == "padron"
 
 
 def test_emision_result_from_json_issued_con_observaciones():
@@ -186,9 +268,10 @@ def test_emision_result_from_json_issued_con_observaciones():
     data = {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "factura-1",
-        "tipo": "FACTURA",
         "estado": "issued",
-        "numero": 42,
+        "comprobante": {"tipo": "factura", "numero": 42, "fecha": "2026-08-18"},
+        "importes": _importes_json(),
+        "receptor": _receptor_json(),
         "cae": "71234567890123",
         "errores": None,
         "observaciones": ["10063: el documento del receptor no figura en el padrón"],
@@ -205,8 +288,10 @@ def test_emision_result_from_json_sin_observaciones_queda_none():
     data = {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "factura-1",
-        "tipo": "FACTURA",
         "estado": "pending",
+        "comprobante": {"tipo": "factura", "fecha": "2026-08-18"},
+        "importes": _importes_json(),
+        "receptor": _receptor_json(),
     }
     result = EmisionResult._from_json(data)
     assert result.observaciones is None
@@ -216,8 +301,10 @@ def test_emision_result_from_json_error_con_errores():
     data = {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "factura-1",
-        "tipo": "FACTURA",
         "estado": "error",
+        "comprobante": {"tipo": "factura", "fecha": "2026-08-18"},
+        "importes": _importes_json(),
+        "receptor": _receptor_json(),
         "errores": ["10016: La fecha del comprobante está fuera de rango"],
     }
     result = EmisionResult._from_json(data)

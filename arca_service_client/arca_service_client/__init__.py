@@ -65,9 +65,12 @@ from .models import (
     Caracterizacion,
     Categoria,
     Chequeo,
+    CodigoAfip,
     ComponenteSociedad,
     ComprobanteAsociado,
+    ComprobanteInfo,
     ComprobanteInput,
+    CondicionIvaReceptor,
     ConexionAfipEmbedTokenResult,
     CredencialResult,
     Dependencia,
@@ -76,6 +79,7 @@ from .models import (
     EmbedTokenResult,
     EmisionResult,
     GenerarCsrResult,
+    Importes,
     Impuesto,
     ItemFactura,
     ItemIva,
@@ -87,6 +91,7 @@ from .models import (
     PuntosVentaResult,
     PuntoVentaExcluido,
     PuntoVentaHabilitado,
+    ReceptorInfo,
     Regimen,
     SesionEmbebidaInput,
     SesionEmbebidaResult,
@@ -94,7 +99,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
 __all__ = [
     "__version__",
@@ -139,6 +144,12 @@ __all__ = [
     "PuntoVentaHabilitado",
     "Regimen",
     "SesionEmbebidaResult",
+    # response — sub-objetos de PreviewResult/EmisionResult (comprobante/importes/receptor)
+    "CodigoAfip",
+    "CondicionIvaReceptor",
+    "ComprobanteInfo",
+    "Importes",
+    "ReceptorInfo",
     # envelope (importar_credencial)
     "EnvelopeError",
     "seal",

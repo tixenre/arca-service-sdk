@@ -612,42 +612,149 @@ class PersonaArca:
 
 # ---------------------------------------------------------------------------
 # Response — preview/emisión
+#
+# `comprobante`/`importes` (y, solo en una emisión real, `receptor`) son objetos
+# anidados, no campos planos -- confirmado contra el propio test suite de arca-service
+# (no solo lectura de código): `test/arca_service_phx_web/controllers/
+# emision_controller_test.exs` (`POST /comprobantes` línea ~142, `POST
+# /comprobantes/preview` línea ~627) y `test/arca_service_phx/webhooks_test.exs`
+# (líneas ~222-271, que además prueba que el body del webhook es BYTE A BYTE el mismo
+# documento que la respuesta de la API). Ver `tests/test_contract.py` para el fixture
+# completo con esas referencias.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
+class CodigoAfip:
+    """Un código cerrado de AFIP con su nombre al lado -- ej. `{"codigo": 96,
+    "descripcion": "DNI"}`. `descripcion` es `None` para un código que la tabla no
+    reconoce (una fila vieja con un código que AFIP retiró después), nunca un
+    `KeyError`: un comprobante ya emitido no puede dejar de poder consultarse porque
+    cambiaron las tablas."""
+
+    codigo: int
+    descripcion: str | None
+
+
+@dataclass(frozen=True)
+class CondicionIvaReceptor:
+    """La condición frente al IVA del receptor, con quién la decidió. `fuente`:
+    `"padron"` en el caso normal, `"declarada"` si el padrón no pudo clasificar ese
+    CUIT y valió lo que mandó el caller."""
+
+    codigo: int
+    descripcion: str | None
+    fuente: str | None = None
+
+
+@dataclass(frozen=True)
+class ComprobanteInfo:
+    """Qué comprobante es: tipo, letra fiscal, código de AFIP y ubicación --
+    `comprobante` tanto en `PreviewResult` como en `EmisionResult`.
+
+    `letra`/`codigo_afip` son `None` mientras una emisión real está `pending` (se
+    resuelven recién al pedir el CAE) y siempre vienen resueltos en un preview.
+    `punto_venta`/`numero` no existen todavía en un preview -- nada se emitió --, por
+    eso son opcionales acá aunque una emisión real siempre los traiga (con `numero` en
+    `None` hasta `issued`)."""
+
+    tipo: str
+    letra: str | None = None
+    codigo_afip: int | None = None
+    punto_venta: int | None = None
+    numero: int | None = None
+    fecha: date | None = None
+
+    @staticmethod
+    def _from_json(d: dict) -> ComprobanteInfo:
+        return ComprobanteInfo(
+            tipo=d["tipo"],
+            letra=d.get("letra"),
+            codigo_afip=d.get("codigo_afip"),
+            punto_venta=d.get("punto_venta"),
+            numero=d.get("numero"),
+            fecha=_fecha(d.get("fecha")),
+        )
+
+
+@dataclass(frozen=True)
+class Importes:
+    """Los importes, la moneda y la cotización -- `importes` tanto en `PreviewResult`
+    como en `EmisionResult`. Van como STRING en el JSON y se parsean a `Decimal`
+    (nunca `float`, evita sorpresas de representación binaria en un monto).
+
+    `moneda`/`cotizacion` son `None` en un preview -- ver `render_preview/1` del lado
+    servidor, no vienen en ese sub-objeto ahí --, siempre presentes en una emisión
+    real."""
+
+    neto: Decimal
+    iva: Decimal
+    no_gravado: Decimal
+    exento: Decimal
+    tributos: Decimal
+    total: Decimal
+    moneda: str | None = None
+    cotizacion: Decimal | None = None
+
+    @staticmethod
+    def _from_json(d: dict) -> Importes:
+        return Importes(
+            neto=_dec(d["neto"]),
+            iva=_dec(d["iva"]),
+            no_gravado=_dec(d["no_gravado"]),
+            exento=_dec(d["exento"]),
+            tributos=_dec(d["tributos"]),
+            total=_dec(d["total"]),
+            moneda=d.get("moneda"),
+            cotizacion=_dec(d["cotizacion"]) if d.get("cotizacion") is not None else None,
+        )
+
+
+@dataclass(frozen=True)
+class ReceptorInfo:
+    """A quién se le facturó -- solo en `EmisionResult` (un preview no confirma
+    receptor todavía). `doc_nro` viaja como número en el JSON, no como string."""
+
+    doc_tipo: CodigoAfip | None
+    doc_nro: int | None
+    nombre: str
+    domicilio: str
+    condicion_iva: CondicionIvaReceptor | None
+
+    @staticmethod
+    def _from_json(d: dict) -> ReceptorInfo:
+        doc_tipo = d.get("doc_tipo")
+        condicion_iva = d.get("condicion_iva")
+        return ReceptorInfo(
+            doc_tipo=CodigoAfip(**doc_tipo) if doc_tipo else None,
+            doc_nro=d.get("doc_nro"),
+            nombre=d.get("nombre", ""),
+            domicilio=d.get("domicilio", ""),
+            condicion_iva=CondicionIvaReceptor(**condicion_iva) if condicion_iva else None,
+        )
+
+
+@dataclass(frozen=True)
 class PreviewResult:
-    cbte_tipo: int
-    cbte_letra: str
-    importe_neto: Decimal
-    importe_iva: Decimal
-    importe_total: Decimal
-    importe_no_gravado: Decimal
-    importe_exento: Decimal
-    importe_tributos: Decimal
+    comprobante: ComprobanteInfo
+    importes: Importes
 
     @staticmethod
     def _from_json(d: dict) -> PreviewResult:
         return PreviewResult(
-            cbte_tipo=d["cbte_tipo"],
-            cbte_letra=d["cbte_letra"],
-            importe_neto=_dec(d["importe_neto"]),
-            importe_iva=_dec(d["importe_iva"]),
-            importe_total=_dec(d["importe_total"]),
-            importe_no_gravado=_dec(d["importe_no_gravado"]),
-            importe_exento=_dec(d["importe_exento"]),
-            importe_tributos=_dec(d["importe_tributos"]),
+            comprobante=ComprobanteInfo._from_json(d["comprobante"]),
+            importes=Importes._from_json(d["importes"]),
         )
 
 
 @dataclass(frozen=True)
 class EmisionResult:
     """Espejo de `EmisionOut`. `estado`: `"pending"` recién creada, `"issued"` con
-    `numero`/`cae`/`cae_vencimiento`/`qr_url` ya completos, o `"error"` con `errores`
-    poblado — pollear `ArcaServiceClient.get_comprobante` hasta que deje de ser
-    `"pending"` (o esperar el webhook, si lo configuraste). Mirá SIEMPRE `estado` para
-    saber si ya está listo: los importes se calculan desde que la emisión se crea, así
-    que YA NO hay ningún importe en cero mientras está `pending` que sirva de proxy.
+    `comprobante.numero`/`cae`/`cae_vencimiento`/`qr_url` ya completos, o `"error"` con
+    `errores` poblado — pollear `ArcaServiceClient.get_comprobante` hasta que deje de
+    ser `"pending"` (o esperar el webhook, si lo configuraste). Mirá SIEMPRE `estado`
+    para saber si ya está listo: `importes` se calcula desde que la emisión se crea, así
+    que no hay ningún importe en cero mientras está `pending` que sirva de proxy.
 
     `observaciones`: comentarios de AFIP sobre un comprobante que SÍ autorizó (ej. el
     documento del receptor no figura en el padrón, una fecha al límite) -- a diferencia
@@ -656,9 +763,10 @@ class EmisionResult:
 
     id: str
     idempotency_key: str
-    tipo: str
     estado: str
-    numero: int | None = None
+    comprobante: ComprobanteInfo
+    importes: Importes
+    receptor: ReceptorInfo
     cae: str = ""
     cae_vencimiento: date | None = None
     qr_url: str = ""
@@ -672,9 +780,10 @@ class EmisionResult:
         return EmisionResult(
             id=d["id"],
             idempotency_key=d["idempotency_key"],
-            tipo=d["tipo"],
             estado=d["estado"],
-            numero=d.get("numero"),
+            comprobante=ComprobanteInfo._from_json(d["comprobante"]),
+            importes=Importes._from_json(d["importes"]),
+            receptor=ReceptorInfo._from_json(d["receptor"]),
             cae=d.get("cae", ""),
             cae_vencimiento=_fecha(d.get("cae_vencimiento")),
             qr_url=d.get("qr_url", ""),

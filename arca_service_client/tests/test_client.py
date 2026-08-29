@@ -7,7 +7,12 @@ Cada test de método verifica DOS cosas por separado: qué se manda (URL/método
 contra el router/controllers de Phoenix reales,
 `lib/arca_service_phx_web/router.ex`/`controllers/*.ex`) y cómo se parsea la respuesta
 (contra `lib/arca_service_phx_web/schemas/*.ex` real) — no alcanza con que uno de los dos
-ande."""
+ande.
+
+`comprobante`/`importes`/`receptor` en las respuestas de emisión/preview son objetos
+anidados, confirmado contra el propio test suite de arca-service -- ver
+`tests/test_contract.py` para las referencias exactas (archivo + línea) en vez de
+repetirlas acá."""
 
 from __future__ import annotations
 
@@ -89,6 +94,77 @@ def _error(type: str, code: str, message: str, **extra):
     return {"error": {"type": type, "code": code, "message": message, **extra}}
 
 
+def _comprobante_json(**overrides):
+    """`comprobante` de una respuesta de emisión/preview -- ver
+    `arca/comprobante_emitido.ex::comprobante/1`. `letra`/`codigo_afip`/`punto_venta`/
+    `numero` en `None` por default, como una emisión recién creada (`pending`)."""
+    d = {
+        "tipo": "FACTURA",
+        "letra": None,
+        "codigo_afip": None,
+        "punto_venta": None,
+        "numero": None,
+        "fecha": "2026-08-18",
+    }
+    d.update(overrides)
+    return d
+
+
+def _importes_json(**overrides):
+    """`importes` de una emisión real -- ver `comprobante_emitido.ex::importes/1`. Un
+    preview no trae `moneda`/`cotizacion` (ver `render_preview/1`, EmisionController);
+    para esos tests, pasá `moneda=None, cotizacion=None` explícito o construí el dict a
+    mano."""
+    d = {
+        "neto": "1000.00",
+        "iva": "0",
+        "no_gravado": "0",
+        "exento": "0",
+        "tributos": "0",
+        "total": "1000.00",
+        "moneda": "PES",
+        "cotizacion": "1",
+    }
+    d.update(overrides)
+    return d
+
+
+def _receptor_json(**overrides):
+    """`receptor` de una emisión real -- ver `comprobante_emitido.ex::receptor/1`.
+    `doc_nro` viaja como número, no como string."""
+    d = {
+        "doc_tipo": {"codigo": 96, "descripcion": "DNI"},
+        "doc_nro": 12345678,
+        "nombre": "",
+        "domicilio": "",
+        "condicion_iva": {"codigo": 5, "descripcion": "Consumidor Final", "fuente": "padron"},
+    }
+    d.update(overrides)
+    return d
+
+
+def _emision_json(**overrides):
+    """Una respuesta completa de `EmisionOut` -- espejo de
+    `comprobante_emitido.ex::json/2`. Default `estado="pending"` recién creada."""
+    d = {
+        "id": "x",
+        "idempotency_key": "factura-1",
+        "estado": "pending",
+        "comprobante": _comprobante_json(),
+        "importes": _importes_json(),
+        "receptor": _receptor_json(),
+        "cae": "",
+        "cae_vencimiento": None,
+        "qr_url": "",
+        "errores": None,
+        "observaciones": None,
+        "webhook_delivered": None,
+        "webhook_last_error": "",
+    }
+    d.update(overrides)
+    return d
+
+
 # ---------------------------------------------------------------------------
 # base_url / auth
 # ---------------------------------------------------------------------------
@@ -115,7 +191,7 @@ def test_manda_authorization_bearer_con_la_api_key(client, httpx_mock):
         method="GET",
         url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
         match_headers={"Authorization": "Bearer test-api-key"},
-        json={"id": "x", "idempotency_key": "factura-1", "tipo": "FACTURA", "estado": "pending"},
+        json=_emision_json(),
     )
     client.get_comprobante("cliente-1", "factura-1")
 
@@ -129,7 +205,7 @@ def test_manda_accept_application_json(client, httpx_mock):
         method="GET",
         url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
         match_headers={"Accept": "application/json"},
-        json={"id": "x", "idempotency_key": "factura-1", "tipo": "FACTURA", "estado": "pending"},
+        json=_emision_json(),
     )
     client.get_comprobante("cliente-1", "factura-1")
 
@@ -356,19 +432,14 @@ def test_preview_comprobante(client, httpx_mock):
         method="POST",
         url=f"{_API}/clientes/cliente-1/comprobantes/preview",
         json={
-            "cbte_tipo": 6,
-            "cbte_letra": "B",
-            "importe_neto": "1000.00",
-            "importe_iva": "210.00",
-            "importe_total": "1210.00",
-            "importe_no_gravado": "0",
-            "importe_exento": "0",
-            "importe_tributos": "0",
+            "comprobante": {"tipo": "factura", "letra": "B", "codigo_afip": 6},
+            "importes": _importes_json(total="1210.00", iva="210.00", moneda=None, cotizacion=None),
         },
     )
     result = client.preview_comprobante("cliente-1", _comprobante())
-    assert result.cbte_letra == "B"
-    assert result.importe_total == Decimal("1210.00")
+    assert result.comprobante.letra == "B"
+    assert result.comprobante.codigo_afip == 6
+    assert result.importes.total == Decimal("1210.00")
 
 
 def test_emitir_comprobante_devuelve_pending(client, httpx_mock):
@@ -376,7 +447,7 @@ def test_emitir_comprobante_devuelve_pending(client, httpx_mock):
         method="POST",
         url=f"{_API}/clientes/cliente-1/comprobantes",
         status_code=202,
-        json={"id": "x", "idempotency_key": "factura-1", "tipo": "FACTURA", "estado": "pending"},
+        json=_emision_json(),
     )
     result = client.emitir_comprobante("cliente-1", _comprobante())
     assert result.estado == "pending"
@@ -387,14 +458,16 @@ def test_emitir_nota_credito_manda_al_endpoint_de_notas_credito(client, httpx_mo
         method="POST",
         url=f"{_API}/clientes/cliente-1/notas-credito",
         status_code=202,
-        json={"id": "x", "idempotency_key": "nc-1", "tipo": "NOTA_CREDITO", "estado": "pending"},
+        json=_emision_json(
+            idempotency_key="nc-1", comprobante=_comprobante_json(tipo="NOTA_CREDITO")
+        ),
     )
     nota = _comprobante(
         idempotency_key="nc-1",
         comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
     )
     result = client.emitir_nota_credito("cliente-1", nota)
-    assert result.tipo == "NOTA_CREDITO"
+    assert result.comprobante.tipo == "NOTA_CREDITO"
 
 
 def test_preview_nota_debito(client, httpx_mock):
@@ -402,14 +475,8 @@ def test_preview_nota_debito(client, httpx_mock):
         method="POST",
         url=f"{_API}/clientes/cliente-1/notas-debito/preview",
         json={
-            "cbte_tipo": 7,
-            "cbte_letra": "B",
-            "importe_neto": "1000.00",
-            "importe_iva": "210.00",
-            "importe_total": "1210.00",
-            "importe_no_gravado": "0",
-            "importe_exento": "0",
-            "importe_tributos": "0",
+            "comprobante": {"tipo": "nota_debito", "letra": "B", "codigo_afip": 7},
+            "importes": _importes_json(total="1210.00", iva="210.00", moneda=None, cotizacion=None),
         },
     )
     nota = _comprobante(
@@ -417,7 +484,7 @@ def test_preview_nota_debito(client, httpx_mock):
         comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
     )
     result = client.preview_nota_debito("cliente-1", nota)
-    assert result.cbte_letra == "B"
+    assert result.comprobante.letra == "B"
 
 
 def test_emitir_nota_debito_manda_al_endpoint_de_notas_debito(client, httpx_mock):
@@ -425,31 +492,30 @@ def test_emitir_nota_debito_manda_al_endpoint_de_notas_debito(client, httpx_mock
         method="POST",
         url=f"{_API}/clientes/cliente-1/notas-debito",
         status_code=202,
-        json={"id": "x", "idempotency_key": "nd-1", "tipo": "NOTA_DEBITO", "estado": "pending"},
+        json=_emision_json(
+            idempotency_key="nd-1", comprobante=_comprobante_json(tipo="NOTA_DEBITO")
+        ),
     )
     nota = _comprobante(
         idempotency_key="nd-1",
         comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
     )
     result = client.emitir_nota_debito("cliente-1", nota)
-    assert result.tipo == "NOTA_DEBITO"
+    assert result.comprobante.tipo == "NOTA_DEBITO"
 
 
 def test_get_comprobante_issued(client, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
-        json={
-            "id": "x",
-            "idempotency_key": "factura-1",
-            "tipo": "FACTURA",
-            "estado": "issued",
-            "numero": 42,
-            "cae": "71234567890123",
-        },
+        json=_emision_json(
+            estado="issued",
+            comprobante=_comprobante_json(letra="B", codigo_afip=6, punto_venta=3, numero=42),
+            cae="71234567890123",
+        ),
     )
     result = client.get_comprobante("cliente-1", "factura-1")
-    assert result.numero == 42
+    assert result.comprobante.numero == 42
     assert result.cae == "71234567890123"
 
 
@@ -459,16 +525,12 @@ def test_get_comprobante_con_observaciones(client, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
-        json={
-            "id": "x",
-            "idempotency_key": "factura-1",
-            "tipo": "FACTURA",
-            "estado": "issued",
-            "numero": 42,
-            "cae": "71234567890123",
-            "errores": None,
-            "observaciones": ["10063: el documento del receptor no figura en el padrón"],
-        },
+        json=_emision_json(
+            estado="issued",
+            comprobante=_comprobante_json(letra="B", codigo_afip=6, punto_venta=3, numero=42),
+            cae="71234567890123",
+            observaciones=["10063: el documento del receptor no figura en el padrón"],
+        ),
     )
     result = client.get_comprobante("cliente-1", "factura-1")
     assert result.estado == "issued"
@@ -686,12 +748,7 @@ def test_emitir_lote_comprobantes_manda_la_clave_comprobantes(client, httpx_mock
                 {
                     "idempotency_key": "lote-1",
                     "ok": True,
-                    "emision": {
-                        "id": "x",
-                        "idempotency_key": "lote-1",
-                        "tipo": "FACTURA",
-                        "estado": "pending",
-                    },
+                    "emision": _emision_json(idempotency_key="lote-1"),
                 },
                 {
                     "idempotency_key": "lote-2",
@@ -729,12 +786,9 @@ def test_emitir_lote_notas_credito_manda_la_clave_notas_credito(client, httpx_mo
             {
                 "idempotency_key": "nc-1",
                 "ok": True,
-                "emision": {
-                    "id": "x",
-                    "idempotency_key": "nc-1",
-                    "tipo": "NOTA_CREDITO",
-                    "estado": "pending",
-                },
+                "emision": _emision_json(
+                    idempotency_key="nc-1", comprobante=_comprobante_json(tipo="NOTA_CREDITO")
+                ),
             }
         ],
     )
@@ -743,7 +797,7 @@ def test_emitir_lote_notas_credito_manda_la_clave_notas_credito(client, httpx_mo
         comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
     )
     resultados = client.emitir_lote_notas_credito("cliente-1", [nota])
-    assert resultados[0].emision.tipo == "NOTA_CREDITO"
+    assert resultados[0].emision.comprobante.tipo == "NOTA_CREDITO"
 
 
 def test_emitir_lote_notas_debito_manda_la_clave_notas_debito(client, httpx_mock):
@@ -754,12 +808,9 @@ def test_emitir_lote_notas_debito_manda_la_clave_notas_debito(client, httpx_mock
             {
                 "idempotency_key": "nd-1",
                 "ok": True,
-                "emision": {
-                    "id": "x",
-                    "idempotency_key": "nd-1",
-                    "tipo": "NOTA_DEBITO",
-                    "estado": "pending",
-                },
+                "emision": _emision_json(
+                    idempotency_key="nd-1", comprobante=_comprobante_json(tipo="NOTA_DEBITO")
+                ),
             }
         ],
     )
@@ -768,7 +819,7 @@ def test_emitir_lote_notas_debito_manda_la_clave_notas_debito(client, httpx_mock
         comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
     )
     resultados = client.emitir_lote_notas_debito("cliente-1", [nota])
-    assert resultados[0].emision.tipo == "NOTA_DEBITO"
+    assert resultados[0].emision.comprobante.tipo == "NOTA_DEBITO"
 
 
 def test_emitir_lote_comprobantes_mas_de_200_items_levanta_request_error(client, httpx_mock):
@@ -796,13 +847,7 @@ def test_reenviar_webhook(client, httpx_mock):
         method="POST",
         url=f"{_API}/clientes/cliente-1/comprobantes/factura-1/webhook/reenviar",
         status_code=202,
-        json={
-            "id": "x",
-            "idempotency_key": "factura-1",
-            "tipo": "FACTURA",
-            "estado": "issued",
-            "webhook_delivered": True,
-        },
+        json=_emision_json(estado="issued", webhook_delivered=True),
     )
     result = client.reenviar_webhook("cliente-1", "factura-1")
     assert result.webhook_delivered is True

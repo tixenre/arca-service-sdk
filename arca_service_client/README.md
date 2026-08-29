@@ -202,15 +202,29 @@ seguridad configurado del lado de arca-service (`BonificadoLimiteError`, 409, ve
 arca-service todavía no le pidió el CAE a AFIP. El resultado real llega por:
 
 - **Polling**: `client.get_comprobante(external_ref, idempotency_key)` hasta que
-  `estado` sea `"issued"` (con `numero`/`cae`/`cae_vencimiento`/`qr_url`) o `"error"`
-  (con `errores`). Siempre disponible, es la fuente de verdad.
+  `estado` sea `"issued"` (con `comprobante.numero`/`cae`/`cae_vencimiento`/`qr_url`) o
+  `"error"` (con `errores`). Siempre disponible, es la fuente de verdad.
 - **Webhook** (opcional, si tu Plataforma configuró `webhook_url` en arca-service): un
   `POST` a tu URL con el mismo shape de `EmisionResult`, firmado — ver abajo.
 
-**Mirá `estado`, no un importe, para saber si ya está listo.** Los seis importes se
-calculan desde que la emisión se crea (no cuando AFIP contesta), así que ya no hay
-ningún importe en cero que sirva de proxy de "todavía pending" — si tu código llegó a
-usar ese atajo, ahora lee plata de verdad y no se entera por una excepción.
+`EmisionResult` anida tres bloques -- `comprobante` (qué es: tipo, letra, número...),
+`importes` (los seis montos + moneda/cotización) y `receptor` (a quién se le facturó) --
+en vez de traerlos todos planos:
+
+```python
+emision = client.get_comprobante(onboarding.external_ref, "factura-8231")
+emision.estado                  # "pending" / "issued" / "error"
+emision.comprobante.tipo        # "factura" / "nota_credito" / "nota_debito"
+emision.comprobante.letra       # "B" -- None mientras está pending
+emision.comprobante.numero      # 42 -- None mientras está pending
+emision.importes.total          # Decimal("1210.00")
+emision.receptor.nombre         # "Juan Pérez"
+```
+
+**Mirá `estado`, no un importe, para saber si ya está listo.** `importes` se calcula
+desde que la emisión se crea (no cuando AFIP contesta), así que no hay ningún importe en
+cero que sirva de proxy de "todavía pending" — si tu código llegó a usar ese atajo, ahora
+lee plata de verdad y no se entera por una excepción.
 
 `observaciones` (lista de strings, o `None`): comentarios de AFIP sobre un comprobante
 que SÍ autorizó (ej. el documento del receptor no figura en el padrón, una fecha al
