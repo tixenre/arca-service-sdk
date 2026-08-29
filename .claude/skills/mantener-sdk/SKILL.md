@@ -85,13 +85,33 @@ los tests son la fuente de verdad. En particular:
   (archivo + línea, un comando que lo reproduzca) para que el usuario se lo
   pase al dev de arca-service -- no lo asumas resuelto ni lo silencies.
   Nunca lo "arregles" editando el repo de arca-service: esta sesión no
-  escribe ahí.
+  escribe ahí. Ese reporte SÍ lleva archivo+línea exactos de arca-service --
+  va dirigido a su propio dev, que conoce ese código. La regla de no citar
+  internals (sección 3) es para lo que se escribe EN el SDK, no para este
+  reporte.
 
 ## 3. Corrigiendo el SDK
 
 Mismos principios que ya rigen este repo (`PRINCIPIOS.md` en arca-service es
 el mismo espíritu):
 
+- **Lo que se investiga es interno; lo que se escribe en el SDK no.**
+  Confirmar un shape requiere leer los schemas/tests reales de arca-service
+  (sección 1) -- pero eso queda en tu propia investigación de esta sesión.
+  En el código, docstrings, tests o README de ESTE repo nunca va: una ruta
+  de archivo de arca-service, un nombre de módulo/schema/función interno
+  (`ComprobanteBaseIn`, `EmisionController`, `comprobante_emitido.ex`,
+  etc.), el stack Elixir/Phoenix, un "Fase N", ni el nombre de una
+  plataforma de prueba real usada como ejemplo (si hace falta una, un
+  placeholder genérico -- nunca un nombre real). Lo que SÍ va: el contrato
+  HTTP en sí, y como mucho una referencia por nombre a
+  `MIGRACION.md`/`API.md` -- son documentos propios de arca-service
+  pensados para un consumidor externo, no su código fuente. Motivo: este
+  repo es público y tiene que poder leerse sin ningún contexto sobre cómo
+  está armado arca-service por dentro. Ya hizo falta una limpieza completa
+  de esto en una sesión anterior (código, tests y comentarios tenían citas
+  de archivo+línea de arca-service y hasta el nombre de una plataforma de
+  prueba real colado como ejemplo) -- no repetir el error.
 - Los cambios del servidor son rompientes y sin campo de compatibilidad a
   propósito -- el SDK los sigue, sin shims de compatibilidad hacia atrás.
   Nadie está integrado en producción todavía.
@@ -106,11 +126,13 @@ el mismo espíritu):
   tests), correr la suite, confirmar que falla, `git stash pop`. Si no
   falla contra el bug que dice atrapar, no sirve.
 - Cuando el shape de una respuesta importa, agregalo/actualizalo en
-  `tests/test_contract.py` -- fixture fijo con la referencia exacta
-  (archivo + línea de arca-service) de dónde salió cada valor, más un
-  chequeo en vivo contra `https://arca.mancino.dev` cuando no haga falta
-  credencial (el sobre de error, por ejemplo). Ese archivo es justamente
-  para que la PRÓXIMA vez que esto se desalinee, algo lo note solo.
+  `tests/test_contract.py` -- fixture fijo con el valor verificado (nunca
+  inventado), documentando en el docstring QUÉ se verificó y por qué se
+  puede confiar en ese valor, sin citar archivo+línea de arca-service (ver
+  el primer punto de esta sección). Sumale un chequeo en vivo contra
+  `https://arca.mancino.dev` cuando no haga falta credencial (el sobre de
+  error, por ejemplo). Ese archivo es justamente para que la PRÓXIMA vez
+  que esto se desalinee, algo lo note solo.
 - Bumpeá `__version__` en `arca_service_client/__init__.py` Y `version` en
   `pyproject.toml` juntos si cambió `__all__` o el shape de alguna clase
   pública -- son dos lugares, tienen que quedar sincronizados
