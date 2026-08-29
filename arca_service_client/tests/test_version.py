@@ -1,6 +1,6 @@
-"""Mismo criterio que arca_fe/tests/test_portabilidad.py: `pyproject.toml` se sincroniza
-A MANO con `__init__.__version__` (no hay build tooling que lo haga automático) — este
-test evita que se desincronicen sin que nadie lo note."""
+"""`pyproject.toml` se sincroniza A MANO con `__init__.__version__` (no hay build
+tooling que lo haga automático) — este test evita que se desincronicen sin que nadie
+lo note."""
 
 from __future__ import annotations
 

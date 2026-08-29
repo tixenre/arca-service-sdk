@@ -1,8 +1,7 @@
 """Tests de arca_service_client.models — sin red. `to_payload()` (request) y
 `_from_json()` (response) son puro mapeo de datos; estos tests fijan el CONTRATO exacto
-contra `lib/arca_service_phx_web/schemas/*.ex` real (nombres de campo, Decimal->string,
-date->ISO, qué se omite vs qué se manda siempre) para que un futuro refactor no lo rompa
-en silencio."""
+contra el shape real de la API (nombres de campo, Decimal->string, date->ISO, qué se
+omite vs qué se manda siempre) para que un futuro refactor no lo rompa en silencio."""
 
 from __future__ import annotations
 
@@ -159,9 +158,9 @@ def test_to_payload_comprobante_asociado_omite_cuit_y_fecha_ausentes():
 
 
 def test_preview_result_from_json():
-    """`comprobante`/`importes` anidados -- confirmado contra
-    `EmisionController.render_preview/1` y su test HTTP (ver `tests/test_contract.py`).
-    Un preview no trae `moneda`/`cotizacion` en `importes` (nada se emitió todavía)."""
+    """`comprobante`/`importes` anidados -- valores verificados contra un preview real
+    (ver `tests/test_contract.py`). Un preview no trae `moneda`/`cotizacion` en
+    `importes` (nada se emitió todavía)."""
     data = {
         "comprobante": {"tipo": "factura", "letra": "B", "codigo_afip": 6},
         "importes": {
@@ -182,10 +181,10 @@ def test_preview_result_from_json():
 
 
 def test_emision_result_from_json_pending():
-    """`comprobante`/`importes`/`receptor` anidados, siempre presentes -- confirmado
-    contra `comprobante_emitido.ex::json/2` y el test HTTP de `POST /comprobantes` (ver
-    `tests/test_contract.py`). `letra`/`codigo_afip`/`numero` en `None` mientras está
-    `pending`: todavía no se le pidió el CAE a AFIP."""
+    """`comprobante`/`importes`/`receptor` anidados, siempre presentes -- valores
+    verificados contra una emisión real (ver `tests/test_contract.py`).
+    `letra`/`codigo_afip`/`numero` en `None` mientras está `pending`: todavía no se le
+    pidió el CAE a AFIP."""
     data = {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "factura-1",
@@ -236,9 +235,8 @@ def test_emision_result_from_json_issued():
 
 
 def test_emision_result_from_json_receptor_completo():
-    """`receptor` -- espejo exacto de `comprobante_emitido.ex::receptor/1`: `doc_tipo`/
-    `condicion_iva` son sub-objetos con código+descripción, `doc_nro` viaja como
-    número."""
+    """`receptor` real: `doc_tipo`/`condicion_iva` son sub-objetos con
+    código+descripción, `doc_nro` viaja como número."""
     data = {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "factura-1",

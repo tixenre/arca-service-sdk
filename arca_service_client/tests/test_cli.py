@@ -47,9 +47,9 @@ def _login_args(**overrides):
     args = {
         "--base-url": _BASE_URL,
         "--invite": "invite_abc",
-        "--name": "Rambla",
-        "--slug": "rambla",
-        "--contact-email": "dev@rambla.house",
+        "--name": "Acme",
+        "--slug": "acme",
+        "--contact-email": "dev@acme.example",
     }
     args.update(overrides)
     argv = ["login", "--yes"]
@@ -58,7 +58,7 @@ def _login_args(**overrides):
     return argv
 
 
-def _mock_signup_ok(httpx_mock, cert_pem, *, slug="rambla"):
+def _mock_signup_ok(httpx_mock, cert_pem, *, slug="acme"):
     httpx_mock.add_response(
         method="POST",
         url=_SIGNUP_URL,
@@ -77,9 +77,9 @@ def _mock_signup_ok(httpx_mock, cert_pem, *, slug="rambla"):
 def _request_invite_args(**overrides):
     args = {
         "--base-url": _BASE_URL,
-        "--name": "Rambla",
-        "--slug": "rambla",
-        "--contact-email": "dev@rambla.house",
+        "--name": "Acme",
+        "--slug": "acme",
+        "--contact-email": "dev@acme.example",
     }
     args.update(overrides)
     argv = ["request-invite"]
@@ -93,7 +93,7 @@ def test_request_invite_feliz_imprime_lo_que_devuelve_el_server(httpx_mock, caps
         method="POST",
         url=_SIGNUP_REQUESTS_URL,
         status_code=201,
-        json={"id": "req-123", "name": "Rambla", "slug": "rambla", "mensaje": "Recibido."},
+        json={"id": "req-123", "name": "Acme", "slug": "acme", "mensaje": "Recibido."},
     )
 
     assert cli.main(_request_invite_args()) == 0
@@ -175,7 +175,7 @@ def test_request_invite_prompts_interactivos_cuando_faltan_flags(monkeypatch, ht
         json={"id": "req-456"},
     )
 
-    respuestas = iter(["Ganche", "ganche", "dev@ganche.com"])
+    respuestas = iter(["Beta", "beta", "dev@beta.example"])
     monkeypatch.setattr("builtins.input", lambda *_args: next(respuestas))
 
     exit_code = cli.main(["request-invite", "--base-url", _BASE_URL])
@@ -184,9 +184,9 @@ def test_request_invite_prompts_interactivos_cuando_faltan_flags(monkeypatch, ht
     [request] = httpx_mock.get_requests()
     body = json.loads(request.content)
     assert body == {
-        "name": "Ganche",
-        "slug": "ganche",
-        "contact_email": "dev@ganche.com",
+        "name": "Beta",
+        "slug": "beta",
+        "contact_email": "dev@beta.example",
         "message": "",
     }
 
@@ -215,7 +215,7 @@ def test_login_feliz_guarda_el_perfil(isolated_config_dir, client_cert_pem, http
 
     profile = load_profile("default")
     assert profile.api_key == "arca_test-key"
-    assert profile.plataforma_slug == "rambla"
+    assert profile.plataforma_slug == "acme"
     assert profile.base_url == _BASE_URL
 
 
@@ -254,7 +254,7 @@ def test_login_manda_un_csr_real_con_el_cn_correcto_y_nunca_una_clave_privada(
 
     csr = x509.load_pem_x509_csr(body["csr_pem"].encode())
     [cn] = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-    assert cn.value == "rambla.arca-service"
+    assert cn.value == "acme.arca-service"
 
 
 def test_login_manda_accept_application_json(isolated_config_dir, client_cert_pem, httpx_mock):
@@ -300,11 +300,11 @@ def test_login_usa_arca_service_base_url_del_entorno_si_no_hay_flag(
         "invite_abc",
         "--yes",
         "--name",
-        "Rambla",
+        "Acme",
         "--slug",
-        "rambla",
+        "acme",
         "--contact-email",
-        "dev@rambla.house",
+        "dev@acme.example",
     ]
 
     assert cli.main(argv) == 0
@@ -342,7 +342,7 @@ def test_login_201_con_campo_faltante_no_revienta_ni_guarda_nada(
         method="POST",
         url=_SIGNUP_URL,
         status_code=201,
-        json={"plataforma_id": "abc-123", "slug": "rambla"},
+        json={"plataforma_id": "abc-123", "slug": "acme"},
     )
 
     exit_code = cli.main(_login_args())
@@ -397,15 +397,15 @@ def test_login_prompts_interactivos_cuando_faltan_flags(
     monkeypatch, isolated_config_dir, client_cert_pem, httpx_mock
 ):
     cert_pem, _ignorado = client_cert_pem
-    _mock_signup_ok(httpx_mock, cert_pem, slug="ganche")
+    _mock_signup_ok(httpx_mock, cert_pem, slug="beta")
 
-    respuestas = iter(["Ganche", "ganche", "dev@ganche.com", "y"])
+    respuestas = iter(["Beta", "beta", "dev@beta.example", "y"])
     monkeypatch.setattr("builtins.input", lambda *_args: next(respuestas))
 
     exit_code = cli.main(["login", "--base-url", _BASE_URL, "--invite", "invite_abc"])
 
     assert exit_code == 0
-    assert load_profile("default").plataforma_slug == "ganche"
+    assert load_profile("default").plataforma_slug == "beta"
 
 
 def test_whoami_sin_perfil_guardado_falla_claro(isolated_config_dir, capsys):
@@ -427,7 +427,7 @@ def test_whoami_con_perfil_guardado_muestra_la_identidad(
 
     salida = capsys.readouterr().out
     assert exit_code == 0
-    assert "rambla" in salida
+    assert "acme" in salida
     assert _BASE_URL in salida
 
 
@@ -458,7 +458,7 @@ def _con_perfil_guardado(isolated_config_dir, client_cert_pem):
             api_key="arca_test-key",
             client_cert_path="",
             client_key_path="",
-            plataforma_slug="rambla",
+            plataforma_slug="acme",
         ),
         cert_pem=cert_pem,
         key_pem=key_pem,

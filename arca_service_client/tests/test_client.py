@@ -4,15 +4,12 @@ conftest.py): `httpx.Client(cert=...)` carga los archivos al construirse, inclus
 transporte mockeado después.
 
 Cada test de método verifica DOS cosas por separado: qué se manda (URL/método/body,
-contra el router/controllers de Phoenix reales,
-`lib/arca_service_phx_web/router.ex`/`controllers/*.ex`) y cómo se parsea la respuesta
-(contra `lib/arca_service_phx_web/schemas/*.ex` real) — no alcanza con que uno de los dos
-ande.
+contra el contrato HTTP real de la API) y cómo se parsea la respuesta (contra el shape
+real que devuelve el servidor) — no alcanza con que uno de los dos ande.
 
 `comprobante`/`importes`/`receptor` en las respuestas de emisión/preview son objetos
-anidados, confirmado contra el propio test suite de arca-service -- ver
-`tests/test_contract.py` para las referencias exactas (archivo + línea) en vez de
-repetirlas acá."""
+anidados -- ver `tests/test_contract.py` para los valores verificados contra el
+comportamiento real de la API, en vez de repetirlos acá."""
 
 from __future__ import annotations
 
@@ -95,9 +92,9 @@ def _error(type: str, code: str, message: str, **extra):
 
 
 def _comprobante_json(**overrides):
-    """`comprobante` de una respuesta de emisión/preview -- ver
-    `arca/comprobante_emitido.ex::comprobante/1`. `letra`/`codigo_afip`/`punto_venta`/
-    `numero` en `None` por default, como una emisión recién creada (`pending`)."""
+    """`comprobante` de una respuesta de emisión/preview. `letra`/`codigo_afip`/
+    `punto_venta`/`numero` en `None` por default, como una emisión recién creada
+    (`pending`)."""
     d = {
         "tipo": "FACTURA",
         "letra": None,
@@ -111,9 +108,8 @@ def _comprobante_json(**overrides):
 
 
 def _importes_json(**overrides):
-    """`importes` de una emisión real -- ver `comprobante_emitido.ex::importes/1`. Un
-    preview no trae `moneda`/`cotizacion` (ver `render_preview/1`, EmisionController);
-    para esos tests, pasá `moneda=None, cotizacion=None` explícito o construí el dict a
+    """`importes` de una emisión real. Un preview no trae `moneda`/`cotizacion`; para
+    esos tests, pasá `moneda=None, cotizacion=None` explícito o construí el dict a
     mano."""
     d = {
         "neto": "1000.00",
@@ -130,8 +126,7 @@ def _importes_json(**overrides):
 
 
 def _receptor_json(**overrides):
-    """`receptor` de una emisión real -- ver `comprobante_emitido.ex::receptor/1`.
-    `doc_nro` viaja como número, no como string."""
+    """`receptor` de una emisión real. `doc_nro` viaja como número, no como string."""
     d = {
         "doc_tipo": {"codigo": 96, "descripcion": "DNI"},
         "doc_nro": 12345678,
@@ -144,8 +139,8 @@ def _receptor_json(**overrides):
 
 
 def _emision_json(**overrides):
-    """Una respuesta completa de `EmisionOut` -- espejo de
-    `comprobante_emitido.ex::json/2`. Default `estado="pending"` recién creada."""
+    """Una respuesta completa de una emisión. Default `estado="pending"` recién
+    creada."""
     d = {
         "id": "x",
         "idempotency_key": "factura-1",
@@ -220,7 +215,7 @@ def test_context_manager_cierra_el_cliente_http(client_cert_files):
 
 
 # ---------------------------------------------------------------------------
-# Cliente — onboarding por CUIT + vínculo (Fase 12)
+# Cliente — onboarding por CUIT + vínculo
 # ---------------------------------------------------------------------------
 
 

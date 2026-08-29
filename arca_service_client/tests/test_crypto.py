@@ -1,7 +1,8 @@
-"""Tests de crypto.seal() — sin red. Verifica el roundtrip completo contra la
-implementación real de descifrado (RSA-OAEP + AES-256-GCM), no solo el shape del dict:
-si `seal()` alguna vez se desincroniza de `saas_core.envelope.unseal()` (ej. un padding
-distinto), esto lo detecta acá en vez de recién al pegarle a arca-service real."""
+"""Tests de crypto.seal() — sin red. Verifica el roundtrip completo contra una
+implementación de referencia del descifrado (RSA-OAEP + AES-256-GCM), no solo el shape
+del dict: si `seal()` alguna vez se desincroniza del esquema que espera el servidor
+(ej. un padding distinto), esto lo detecta acá en vez de recién al pegarle a
+arca-service real."""
 
 from __future__ import annotations
 
@@ -33,8 +34,8 @@ def _keypair():
 
 
 def _unseal(sealed: dict, private_key_pem: bytes) -> bytes:
-    """Réplica mínima de `saas_core.envelope.unseal()` — solo para verificar el
-    roundtrip en el test, no vive en el paquete (`unseal()` es responsabilidad de
+    """Réplica mínima del descifrado que hace el servidor — solo para verificar el
+    roundtrip en el test, no vive en el paquete (descifrar es responsabilidad de
     arca-service, nunca de este cliente)."""
     private_key = serialization.load_pem_private_key(private_key_pem, password=None)
     aes_key = private_key.decrypt(base64.b64decode(sealed["ek"]), _OAEP_PADDING)

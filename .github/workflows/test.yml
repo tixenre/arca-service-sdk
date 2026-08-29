@@ -25,8 +25,8 @@ jobs:
       - run: mypy arca_service_client
       - run: python -m pytest -v
 
-  # Job separado, entorno separado — mismo criterio que saas-core/site_builder: JS/TS,
-  # no depende de nada de arca_service_client ni viceversa.
+  # Job separado, entorno separado: JS/TS, no depende de nada de arca_service_client ni
+  # viceversa.
   arca-service-ui:
     runs-on: ubuntu-latest
     defaults:

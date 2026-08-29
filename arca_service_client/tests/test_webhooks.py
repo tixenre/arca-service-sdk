@@ -1,7 +1,7 @@
 """Tests de verify_webhook_signature — sin red. Firma armada con el MISMO esquema que
-`lib/arca_service_phx/workers/entregar_webhook.ex` de arca-service (no reimplementado
-distinto acá por las dudas — si el esquema real cambia, este test no lo detectaría, pero
-al menos confirma que la implementación ES ese esquema)."""
+usa el servidor real para firmar sus webhooks (no reimplementado distinto acá por las
+dudas — si el esquema real cambia, este test no lo detectaría, pero al menos confirma
+que la implementación ES ese esquema)."""
 
 from __future__ import annotations
 

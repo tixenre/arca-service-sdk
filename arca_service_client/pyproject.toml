@@ -1,21 +1,21 @@
 [project]
 name = "arca-service-client"
-# Arranca en 0.0.1 (no 0.1.0) — mismo criterio que arca_fe/pyproject.toml: SemVer real
-# recién cuando el contrato público se estabilice con uso real, no por haber escrito
-# código. NO se bumpea en cada commit — solo cuando cambia la superficie pública
-# (__all__) de forma que un consumidor necesite enterarse.
+# Arranca en 0.0.1 (no 0.1.0) — SemVer real recién cuando el contrato público se
+# estabilice con uso real, no por haber escrito código. NO se bumpea en cada commit —
+# solo cuando cambia la superficie pública (__all__) de forma que un consumidor
+# necesite enterarse.
 version = "0.0.7"
 description = "Cliente HTTP oficial para arca-service (facturación electrónica ARCA/AFIP) — mTLS + API key, sin dependencias pesadas."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Proprietary" }
 
-# Core mínimo a propósito, mismo criterio que arca_fe/pyproject.toml: quien consume esto
-# no debería arrastrar Django/Celery/saas-core solo para hablar HTTP con arca-service.
-# httpx: transporte (soporta mTLS vía `cert=(cert_path, key_path)` nativamente, a
-# diferencia de `requests`, que necesita un adapter propio para eso). cryptography:
-# solo la usa `crypto.py::seal()` (RSA-OAEP + AES-256-GCM, puerto exacto de
-# `saas_core.envelope.seal()` — ver ese módulo para el porqué del esquema).
+# Core mínimo a propósito: quien consume esto no debería arrastrar dependencias
+# pesadas de framework solo para hablar HTTP con arca-service. httpx: transporte
+# (soporta mTLS vía `cert=(cert_path, key_path)` nativamente, a diferencia de
+# `requests`, que necesita un adapter propio para eso). cryptography: solo la usa
+# `crypto.py::seal()` (RSA-OAEP + AES-256-GCM — ver ese módulo para el detalle del
+# esquema).
 dependencies = [
     "httpx>=0.27",
     "cryptography",
@@ -43,8 +43,7 @@ build-backend = "setuptools.build_meta"
 
 # Layout real: este pyproject.toml vive en arca_service_client/ (afuera) y el código
 # real está un nivel más adentro, en arca_service_client/arca_service_client/ (mismo
-# nombre repetido, no un typo — mismo truco de layout que arca_fe/pyproject.toml en
-# tixenre/arca-service). Lo que hubo ACÁ antes (`[tool.setuptools.packages.find]` con
+# nombre repetido, no un typo). Lo que hubo ACÁ antes (`[tool.setuptools.packages.find]` con
 # `where=[".."]` + `include=["arca_service_client*"]`) matcheaba DOS paquetes a la vez:
 # el real anidado (`arca_service_client.arca_service_client`, con código) Y un namespace
 # package implícito vacío al nivel de arriba (`arca_service_client`, sin `__init__.py`

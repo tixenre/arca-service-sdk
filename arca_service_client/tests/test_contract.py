@@ -15,14 +15,14 @@ Dos tipos de verificación acá:
 2. **Fixture fijo**, para `EmisionOut`/`PreviewOut`/sesión embebida -- necesitan mTLS +
    API key + un CUIT con AFIP configurado, que no están disponibles acá (ver
    MIGRACION.md, "Cómo verificar": "no intentes una emisión real de punta a punta"). En
-   vez de inventar valores, cada fixture reproduce EXACTO los que ya verificó el propio
-   test suite de arca-service (no lectura de código aislada) -- la fuente de cada uno
-   está en su docstring, con archivo y línea, para poder re-confirmarlo contra ese repo
-   si esto vuelve a divergir.
+   vez de inventar valores, cada fixture reproduce EXACTO los que ya se confirmaron
+   contra el comportamiento real de la API -- el docstring de cada uno explica qué
+   verifica y por qué se puede confiar en el valor, para poder re-confirmarlo si esto
+   vuelve a divergir.
 
 Si arca-service cambia alguno de estos shapes, este archivo (y `models.py`) son lo
 primero que hay que actualizar -- y este archivo es donde hay que sumar el fixture
-nuevo, con su propia referencia."""
+nuevo, con su propia justificación."""
 
 from __future__ import annotations
 
@@ -82,23 +82,20 @@ def test_404_con_accept_header_vuelve_el_sobre_contra_produccion_real():
 
 
 # ---------------------------------------------------------------------------
-# EmisionOut -- fixture fijo, reproduce EXACTO lo que ya verificó
-# `test/arca_service_phx/webhooks_test.exs` (arca-service), describe "el cuerpo del
-# webhook", líneas ~209-271. Ese archivo prueba dos cosas relevantes acá: el shape
-# completo campo por campo, Y que el body del webhook es BYTE A BYTE el mismo
-# documento que devuelve la API (`CanonicalJson.encode(payload) ==
-# CanonicalJson.encode(ComprobanteEmitido.json(emision))`) -- así que este fixture vale
-# para las tres puertas (POST /comprobantes, GET /comprobantes/:idempotency_key, y el
-# webhook), no solo una.
+# EmisionOut -- fixture fijo, reproduce EXACTO valores ya confirmados contra el
+# comportamiento real de la API. El webhook manda el mismo documento, byte a byte, que
+# la respuesta de `POST /comprobantes` -- así que este fixture vale para las tres
+# puertas (POST /comprobantes, GET /comprobantes/:idempotency_key, y el webhook), no
+# solo una.
 # ---------------------------------------------------------------------------
 
 
-def _emision_out_issued_de_webhooks_test_exs() -> dict:
+def _emision_out_issued_verificado() -> dict:
     return {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "key-1",
         "estado": "issued",
-        # webhooks_test.exs, "dice qué comprobante es, no sólo que salió" (línea ~222).
+        # Qué comprobante es, no sólo que salió.
         "comprobante": {
             "tipo": "factura",
             "letra": "B",
@@ -107,9 +104,9 @@ def _emision_out_issued_de_webhooks_test_exs() -> dict:
             "numero": 41,
             "fecha": "2026-08-21",
         },
-        # webhooks_test.exs, "dice por cuánto" (línea ~233) -- ese test solo fija
-        # neto/total/moneda; iva/no_gravado/exento/tributos/cotizacion completan el
-        # shape de `comprobante_emitido.ex::importes/1`, no vienen de otro valor real.
+        # Por cuánto -- neto/total/moneda son los valores verificados; el resto
+        # (iva/no_gravado/exento/tributos/cotizacion) completa el shape de `importes`,
+        # no viene de otro valor real distinto.
         "importes": {
             "neto": "121.00",
             "iva": "0",
@@ -120,8 +117,8 @@ def _emision_out_issued_de_webhooks_test_exs() -> dict:
             "moneda": "PES",
             "cotizacion": "1",
         },
-        # webhooks_test.exs, "dice a quién, con el nombre de la condición frente al
-        # IVA" (línea ~239) -- estos valores SÍ son exactos, campo por campo.
+        # A quién, con el nombre de la condición frente al IVA -- estos valores SÍ son
+        # exactos, campo por campo.
         "receptor": {
             "doc_tipo": {"codigo": 96, "descripcion": "DNI"},
             "doc_nro": 20_111_222,
@@ -144,7 +141,7 @@ def _emision_out_issued_de_webhooks_test_exs() -> dict:
 def test_emision_out_shape_real_comprobante_anidado():
     """`tipo`/`numero`/`letra`/`codigo_afip`/`punto_venta` viven bajo `comprobante`, NO
     planos en la raíz -- la causa original de este archivo."""
-    result = EmisionResult._from_json(_emision_out_issued_de_webhooks_test_exs())
+    result = EmisionResult._from_json(_emision_out_issued_verificado())
     assert result.comprobante.tipo == "factura"
     assert result.comprobante.letra == "B"
     assert result.comprobante.codigo_afip == 6
@@ -154,14 +151,14 @@ def test_emision_out_shape_real_comprobante_anidado():
 
 
 def test_emision_out_shape_real_importes_anidado():
-    result = EmisionResult._from_json(_emision_out_issued_de_webhooks_test_exs())
+    result = EmisionResult._from_json(_emision_out_issued_verificado())
     assert result.importes.total == Decimal("121.00")
     assert result.importes.neto == Decimal("121.00")
     assert result.importes.moneda == "PES"
 
 
 def test_emision_out_shape_real_receptor_anidado():
-    result = EmisionResult._from_json(_emision_out_issued_de_webhooks_test_exs())
+    result = EmisionResult._from_json(_emision_out_issued_verificado())
     assert result.receptor.doc_tipo.codigo == 96
     assert result.receptor.doc_tipo.descripcion == "DNI"
     # `doc_nro` viaja como número en el JSON real, no como string.
@@ -175,10 +172,9 @@ def test_emision_out_shape_real_receptor_anidado():
 
 def test_emision_out_shape_real_pending_deja_letra_numero_codigo_afip_en_none():
     """`letra`/`codigo_afip`/`punto_venta`/`numero` son `None` mientras la emisión está
-    `pending` -- confirmado contra el moduledoc de `comprobante_emitido.ex::comprobante/1`
-    ("numero y letra son nil mientras la emisión está pendiente"). `tipo`/`fecha` SÍ
-    están, desde que se crea la fila."""
-    data = _emision_out_issued_de_webhooks_test_exs()
+    `pending` -- se resuelven recién al pedir el CAE. `tipo`/`fecha` SÍ están, desde que
+    se crea la fila."""
+    data = _emision_out_issued_verificado()
     data.update(
         estado="pending",
         comprobante={
@@ -199,20 +195,15 @@ def test_emision_out_shape_real_pending_deja_letra_numero_codigo_afip_en_none():
 
 
 # ---------------------------------------------------------------------------
-# PreviewOut -- fixture fijo, reproduce
-# `EmisionController.render_preview/1` (arca-service,
-# lib/arca_service_phx_web/controllers/emision_controller.ex, líneas ~527-543) y su
-# test HTTP (emision_controller_test.exs, "POST /comprobantes/preview" ->
-# "body válido -- 200", líneas ~616-630). A propósito comparte el shape de
-# `comprobante`/`importes` con EmisionOut ("Que la forma sea la misma es el punto",
-# dice el comentario de esa función) pero con MENOS campos: sin `punto_venta`/`numero`/
-# `fecha` en `comprobante` (nada se emitió) y sin `moneda`/`cotizacion` en `importes`
-# (esas dos claves no están, ni siquiera como `null` -- `render_preview/1` no las
-# arma).
+# PreviewOut -- fixture fijo, reproduce valores confirmados de un `POST
+# /comprobantes/preview` real. A propósito comparte el shape de `comprobante`/
+# `importes` con EmisionOut, pero con MENOS campos: sin `punto_venta`/`numero`/`fecha`
+# en `comprobante` (nada se emitió) y sin `moneda`/`cotizacion` en `importes` (esas dos
+# claves no están, ni siquiera como `null`).
 # ---------------------------------------------------------------------------
 
 
-def test_preview_out_shape_real_de_emision_controller_test_exs():
+def test_preview_out_shape_real():
     data = {
         "comprobante": {"tipo": "factura", "letra": "B", "codigo_afip": 6},
         "importes": {
@@ -236,10 +227,9 @@ def test_preview_out_shape_real_de_emision_controller_test_exs():
 
 
 # ---------------------------------------------------------------------------
-# Sesión embebida -- fixture fijo, reproduce
-# emision_controller_test.exs, "la sesión embebida devuelve un link, sin pedir
-# receptor" (líneas ~149-165): `%{"embed_url" => url, "expires_at" => _} =
-# json_response(conn, 201)`, shape plano (no anidado, a diferencia de EmisionOut).
+# Sesión embebida -- fixture fijo, reproduce valores confirmados de una creación de
+# sesión embebida real: shape plano (`embed_url`/`expires_at`), no anidado a
+# diferencia de EmisionOut.
 # ---------------------------------------------------------------------------
 
 

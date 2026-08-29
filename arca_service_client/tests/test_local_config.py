@@ -24,7 +24,7 @@ def _profile(**overrides):
         api_key="arca_test-key",
         client_cert_path="",
         client_key_path="",
-        plataforma_slug="rambla",
+        plataforma_slug="acme",
     )
     kwargs.update(overrides)
     return Profile(**kwargs)
@@ -38,7 +38,7 @@ def test_save_y_load_profile_ida_y_vuelta(isolated_config_dir, client_cert_pem):
 
     assert loaded.base_url == "https://arca.test"
     assert loaded.api_key == "arca_test-key"
-    assert loaded.plataforma_slug == "rambla"
+    assert loaded.plataforma_slug == "acme"
     assert loaded.client_cert_path.endswith("default.crt")
     assert loaded.client_key_path.endswith("default.key")
 
@@ -76,11 +76,11 @@ def test_save_profile_deja_los_archivos_sensibles_con_permisos_restrictivos(
 def test_dos_perfiles_conviven_sin_pisarse(isolated_config_dir, client_cert_pem):
     cert_pem, key_pem = client_cert_pem
 
-    save_profile("rambla", _profile(plataforma_slug="rambla"), cert_pem=cert_pem, key_pem=key_pem)
-    save_profile("ganche", _profile(plataforma_slug="ganche"), cert_pem=cert_pem, key_pem=key_pem)
+    save_profile("acme", _profile(plataforma_slug="acme"), cert_pem=cert_pem, key_pem=key_pem)
+    save_profile("beta", _profile(plataforma_slug="beta"), cert_pem=cert_pem, key_pem=key_pem)
 
-    assert load_profile("rambla").plataforma_slug == "rambla"
-    assert load_profile("ganche").plataforma_slug == "ganche"
+    assert load_profile("acme").plataforma_slug == "acme"
+    assert load_profile("beta").plataforma_slug == "beta"
 
 
 def test_load_profile_inexistente_da_credentials_not_found_error(isolated_config_dir):

@@ -2,8 +2,7 @@ name: publish arca_service_ui
 
 # npm no soporta instalar desde un subdirectorio de un repo git como pip
 # (git+...#subdirectory=) -- a diferencia de arca_service_client, este paquete SÍ
-# necesita un publish real a un registry. GitHub Packages, bajo el mismo scope
-# (@tixenre) que site_builder en saas-core.
+# necesita un publish real a un registry: GitHub Packages.
 on:
   push:
     tags:

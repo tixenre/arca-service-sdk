@@ -28,9 +28,9 @@ def _parse_fecha_hora(v: str) -> datetime:
     # `.replace("Z", "+00:00")` -- `datetime.fromisoformat` recién entiende el
     # sufijo "Z" (UTC) nativo desde Python 3.11; este paquete declara
     # `requires-python = ">=3.9"`, así que sin esto un `expires_at` de
-    # `crear_embed_token` (Phoenix/Jason codifica un `DateTime` UTC con "Z",
-    # no "+00:00") rompería para cualquier consumidor en 3.9/3.10. No-op si
-    # `v` no trae "Z" (offset explícito, o un naive datetime de AFIP).
+    # `crear_embed_token` (el servidor codifica un datetime UTC con "Z", no
+    # "+00:00") rompería para cualquier consumidor en 3.9/3.10. No-op si `v`
+    # no trae "Z" (offset explícito, o un naive datetime de AFIP).
     return datetime.fromisoformat(v.replace("Z", "+00:00"))
 
 
@@ -57,8 +57,8 @@ class ItemIva:
 
 @dataclass
 class Tributo:
-    """Un tributo/percepción (Impuestos Internos, percepciones de IIBB, etc.) — ver
-    `TributoIn`. `id`: código de la tabla AFIP `FEParamGetTiposTributos`."""
+    """Un tributo/percepción (Impuestos Internos, percepciones de IIBB, etc.).
+    `id`: código de la tabla AFIP `FEParamGetTiposTributos`."""
 
     id: int
     base_imponible: Decimal
@@ -78,8 +78,7 @@ class Tributo:
 
 @dataclass
 class Opcional:
-    """Un dato opcional del comprobante (ej. CBU/Alias de una FCE MiPyme) — ver
-    `OpcionalIn`."""
+    """Un dato opcional del comprobante (ej. CBU/Alias de una FCE MiPyme)."""
 
     id: str
     valor: str
@@ -91,7 +90,7 @@ class Opcional:
 @dataclass
 class ItemFactura:
     """Línea comercial — puramente para el render del comprobante (.html/.pdf/.imagen),
-    no participa del cálculo fiscal. Ver `ItemFacturaIn`."""
+    no participa del cálculo fiscal."""
 
     descripcion: str
     precio_unitario: Decimal
@@ -118,7 +117,7 @@ class ItemFactura:
 @dataclass
 class ComprobanteAsociado:
     """Referencia a la factura original — obligatorio en una nota de crédito/débito
-    (`ComprobanteInput.comprobante_asociado`). Ver `ComprobanteAsociadoIn`."""
+    (`ComprobanteInput.comprobante_asociado`)."""
 
     tipo: int
     punto_venta: int
@@ -137,12 +136,11 @@ class ComprobanteAsociado:
 
 @dataclass
 class ComprobanteInput:
-    """Espejo de `ComprobanteBaseIn` — usado tal cual para `preview_comprobante`/
-    `emitir_comprobante`, y con `comprobante_asociado` seteado para
-    `preview_nota_credito`/`emitir_nota_credito` (arca-service exige ese campo ahí, ver
-    `NotaCreditoIn`/`NotaDebitoIn`; el método del client es quien decide a qué endpoint
-    pegarle según lo llames — este dataclass no valida esa regla, la deja pasar tal cual
-    al servidor, que sí la exige).
+    """Body usado tal cual para `preview_comprobante`/`emitir_comprobante`, y con
+    `comprobante_asociado` seteado para `preview_nota_credito`/`emitir_nota_credito`
+    (el servidor exige ese campo ahí; el método del client es quien decide a qué
+    endpoint pegarle según lo llames — este dataclass no valida esa regla, la deja
+    pasar tal cual al servidor, que sí la exige).
 
     `concepto`/`emisor_condicion_iva`/`receptor_doc_tipo`/`receptor_condicion_iva`/
     `forzar_cbte_tipo`: códigos de `arca_service_client.enums`, pasados como `int` tal
@@ -614,13 +612,10 @@ class PersonaArca:
 # Response — preview/emisión
 #
 # `comprobante`/`importes` (y, solo en una emisión real, `receptor`) son objetos
-# anidados, no campos planos -- confirmado contra el propio test suite de arca-service
-# (no solo lectura de código): `test/arca_service_phx_web/controllers/
-# emision_controller_test.exs` (`POST /comprobantes` línea ~142, `POST
-# /comprobantes/preview` línea ~627) y `test/arca_service_phx/webhooks_test.exs`
-# (líneas ~222-271, que además prueba que el body del webhook es BYTE A BYTE el mismo
-# documento que la respuesta de la API). Ver `tests/test_contract.py` para el fixture
-# completo con esas referencias.
+# anidados, no campos planos -- confirmado contra el comportamiento real de la API
+# (no solo contra la documentación), incluyendo que el webhook manda el mismo
+# documento que la respuesta de la API. Ver `tests/test_contract.py` para el fixture
+# completo con los valores verificados.
 # ---------------------------------------------------------------------------
 
 
@@ -683,9 +678,8 @@ class Importes:
     como en `EmisionResult`. Van como STRING en el JSON y se parsean a `Decimal`
     (nunca `float`, evita sorpresas de representación binaria en un monto).
 
-    `moneda`/`cotizacion` son `None` en un preview -- ver `render_preview/1` del lado
-    servidor, no vienen en ese sub-objeto ahí --, siempre presentes en una emisión
-    real."""
+    `moneda`/`cotizacion` son `None` en un preview -- no vienen en ese sub-objeto ahí --,
+    siempre presentes en una emisión real."""
 
     neto: Decimal
     iva: Decimal
