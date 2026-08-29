@@ -1,7 +1,7 @@
 """arca_service_client.enums — códigos tal cual los define AFIP. Portados a mano, NO
 reinventados: son los mismos valores enteros que arca-service espera en el payload y
 devuelve en sus respuestas — un mismatch acá sería un bug silencioso (ej. mandar
-`receptor_condicion_iva=4` pensando que es Consumidor Final cuando en realidad es
+`Receptor(condicion_iva=4)` pensando que es Consumidor Final cuando en realidad es
 Exento).
 
 Mantenidos a mano, no importados de una dependencia -- evita arrastrar librerías
@@ -67,14 +67,3 @@ class CbteTipo(IntEnum):
     FACTURA_CRED_ELEC_MIPYME_C = 211
     NOTA_DEBITO_CRED_ELEC_MIPYME_C = 212
     NOTA_CREDITO_CRED_ELEC_MIPYME_C = 213
-
-
-class Alicuota(IntEnum):
-    """Id de alícuota de IVA (tabla AFIP `FEParamGetTiposIva`) — para
-    `ComprobanteInput.alicuota_unica`/`ItemIva.alicuota_id`. Alcanza con el id: el
-    porcentaje lo resuelve arca-service, este paquete no calcula IVA."""
-
-    IVA_0 = 3  # exento/no gravado dentro de un comprobante con IVA discriminado
-    IVA_10_5 = 4
-    IVA_21 = 5
-    IVA_27 = 6

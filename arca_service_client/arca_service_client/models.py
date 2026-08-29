@@ -44,57 +44,56 @@ def _fecha_hora(v: Any) -> datetime | None:
 
 
 @dataclass
-class ItemIva:
-    """Desglose de neto por alícuota. `alicuota_id`: id de
-    `arca_service_client.enums.Alicuota`."""
-
-    alicuota_id: int
-    base_imponible: Decimal
-
-    def _to_dict(self) -> dict:
-        return {"alicuota_id": int(self.alicuota_id), "base_imponible": str(self.base_imponible)}
-
-
-@dataclass
 class Tributo:
     """Un tributo/percepción (Impuestos Internos, percepciones de IIBB, etc.).
-    `id`: código de la tabla AFIP `FEParamGetTiposTributos`."""
+    `codigo`: código de la tabla AFIP `FEParamGetTiposTributos`."""
 
-    id: int
+    codigo: int
     base_imponible: Decimal
     alicuota_pct: Decimal
     importe: Decimal
-    desc: str = ""
+    descripcion: str = ""
 
     def _to_dict(self) -> dict:
         return {
-            "id": self.id,
+            "codigo": self.codigo,
             "base_imponible": str(self.base_imponible),
             "alicuota_pct": str(self.alicuota_pct),
             "importe": str(self.importe),
-            "desc": self.desc,
+            "descripcion": self.descripcion,
         }
 
 
 @dataclass
 class Opcional:
-    """Un dato opcional del comprobante (ej. CBU/Alias de una FCE MiPyme)."""
+    """Un dato opcional del comprobante (ej. CBU/Alias de una FCE MiPyme).
+    `codigo`: código de la tabla AFIP `FEParamGetTiposOpcional`."""
 
-    id: str
+    codigo: str
     valor: str
 
     def _to_dict(self) -> dict:
-        return {"id": self.id, "valor": self.valor}
+        return {"codigo": self.codigo, "valor": self.valor}
 
 
 @dataclass
 class ItemFactura:
-    """Línea comercial — puramente para el render del comprobante (.html/.pdf/.imagen),
-    no participa del cálculo fiscal."""
+    """Un renglón: qué se vendió, a cuánto, y cómo lo trata el IVA -- la ÚNICA
+    fuente de los importes del comprobante, no hay un importe neto aparte para
+    reconciliar contra esto.
+
+    Va `precio_unitario` (sin IVA) o `precio_final` (con IVA incluido), nunca los
+    dos: no son equivalentes bajo redondeo, así que ninguno se puede derivar del
+    otro.
+
+    `iva` es el porcentaje en string (`"21"`, `"10.5"`, `"0"`), nunca un id de
+    alícuota -- o `"exento"`/`"no_gravado"` para los dos casos que AFIP trata
+    distinto de un 0% discriminado."""
 
     descripcion: str
-    precio_unitario: Decimal
-    subtotal: Decimal
+    iva: str
+    precio_unitario: Decimal | None = None
+    precio_final: Decimal | None = None
     codigo: str = ""
     cantidad: Decimal = Decimal("1")
     unidad_medida: str = "unidad"
@@ -102,28 +101,40 @@ class ItemFactura:
     detalle: str = ""
 
     def _to_dict(self) -> dict:
-        return {
+        d: dict = {
             "descripcion": self.descripcion,
-            "precio_unitario": str(self.precio_unitario),
-            "subtotal": str(self.subtotal),
+            "iva": self.iva,
             "codigo": self.codigo,
             "cantidad": str(self.cantidad),
             "unidad_medida": self.unidad_medida,
             "bonificacion_pct": str(self.bonificacion_pct),
             "detalle": self.detalle,
         }
+        if self.precio_unitario is not None:
+            d["precio_unitario"] = str(self.precio_unitario)
+        if self.precio_final is not None:
+            d["precio_final"] = str(self.precio_final)
+        return d
 
 
 @dataclass
 class ComprobanteAsociado:
-    """Referencia a la factura original — obligatorio en una nota de crédito/débito
-    (`ComprobanteInput.comprobante_asociado`)."""
+    """Referencia a la factura original — obligatoria en una nota de crédito/débito
+    (`ComprobanteInput.comprobante_asociado`). Con `tipo`/`punto_venta`/`numero`
+    alcanza si el comprobante original lo emitió este mismo servicio -- se busca
+    solo, sin pedir más datos.
+
+    `cae`/`importe_total`: para asociar una nota a un comprobante que NO emitió
+    este servicio (de antes de migrar, o de otro proveedor) -- van los dos juntos
+    o ninguno, el servidor los exige así."""
 
     tipo: int
     punto_venta: int
     numero: int
     cuit: str | None = None
     fecha: date | None = None
+    cae: str | None = None
+    importe_total: Decimal | None = None
 
     def _to_dict(self) -> dict:
         d: dict = {"tipo": int(self.tipo), "punto_venta": self.punto_venta, "numero": self.numero}
@@ -131,6 +142,55 @@ class ComprobanteAsociado:
             d["cuit"] = self.cuit
         if self.fecha is not None:
             d["fecha"] = self.fecha.isoformat()
+        if self.cae is not None:
+            d["cae"] = self.cae
+        if self.importe_total is not None:
+            d["importe_total"] = str(self.importe_total)
+        return d
+
+
+@dataclass
+class Receptor:
+    """A quién se le factura. Exactamente una de estas tres formas lo identifica
+    -- el servidor rechaza si no viene ninguna, o si viene más de una:
+
+        Receptor(cuit="30712345671")
+        Receptor(dni="20111222", nombre="Juan Pérez")
+        Receptor(consumidor_final=True)
+
+    Con `cuit`, `nombre`/`domicilio` no hace falta mandarlos (y es un 422 si se
+    mandan): los resuelve solo el padrón de AFIP. Con `dni` sí se aceptan -- no
+    hay padrón que consultar para alguien sin CUIT.
+
+    `condicion_iva`: código de AFIP, salida de emergencia para el único caso que
+    el padrón no puede resolver solo -- si el padrón sabe, gana el padrón y esto
+    se ignora.
+
+    `email` es aparte y va con cualquiera de las tres formas: no es un dato
+    fiscal, es el contacto para mandarle una copia del comprobante."""
+
+    cuit: str | None = None
+    dni: str | None = None
+    consumidor_final: bool = False
+    nombre: str = ""
+    domicilio: str = ""
+    condicion_iva: int | None = None
+    email: str | None = None
+
+    def _to_dict(self) -> dict:
+        d: dict = {
+            "consumidor_final": self.consumidor_final,
+            "nombre": self.nombre,
+            "domicilio": self.domicilio,
+        }
+        if self.cuit is not None:
+            d["cuit"] = self.cuit
+        if self.dni is not None:
+            d["dni"] = self.dni
+        if self.condicion_iva is not None:
+            d["condicion_iva"] = int(self.condicion_iva)
+        if self.email is not None:
+            d["email"] = self.email
         return d
 
 
@@ -142,75 +202,52 @@ class ComprobanteInput:
     endpoint pegarle según lo llames — este dataclass no valida esa regla, la deja
     pasar tal cual al servidor, que sí la exige).
 
-    `concepto`/`emisor_condicion_iva`/`receptor_doc_tipo`/`receptor_condicion_iva`/
-    `forzar_cbte_tipo`: códigos de `arca_service_client.enums`, pasados como `int` tal
-    cual (podés pasar el enum directo, `int(enum)` sale solo)."""
+    Los importes no se mandan sueltos -- `items` es la ÚNICA fuente: el neto, el
+    IVA y el total salen de sumar los renglones. `concepto`/`forzar_cbte_tipo`:
+    códigos de `arca_service_client.enums`, pasados como `int` tal cual (podés
+    pasar el enum directo, `int(enum)` sale solo).
+
+    `fecha`/`punto_venta`/`moneda` son opcionales: sin `fecha` el servidor usa la
+    de hoy, sin `punto_venta` usa el de la credencial activa, sin `moneda` asume
+    pesos."""
 
     idempotency_key: str
     concepto: int
-    emisor_condicion_iva: int
-    receptor_doc_tipo: int
-    receptor_doc_nro: str
-    receptor_condicion_iva: int
-    fecha: date
+    receptor: Receptor
+    items: list[ItemFactura] = field(default_factory=list)
     punto_venta: int | None = None
+    fecha: date | None = None
     fecha_serv_desde: date | None = None
     fecha_serv_hasta: date | None = None
     fecha_vto_pago: date | None = None
     moneda: str = "PES"
-    cotizacion: Decimal = Decimal("1")
-    importe_neto: Decimal = Decimal("0")
-    importe_no_gravado: Decimal = Decimal("0")
-    importe_exento: Decimal = Decimal("0")
-    alicuota_unica: int | None = None
-    items_iva: list[ItemIva] = field(default_factory=list)
+    forzar_cbte_tipo: int | None = None
+    condicion_venta: str = "Contado"
     tributos: list[Tributo] = field(default_factory=list)
     opcionales: list[Opcional] = field(default_factory=list)
-    forzar_cbte_tipo: int | None = None
-    items: list[ItemFactura] = field(default_factory=list)
-    emisor_razon_social: str = ""
-    emisor_domicilio: str = ""
-    emisor_iibb: str = ""
-    receptor_nombre: str = ""
-    receptor_domicilio: str = ""
-    condicion_venta: str = "Contado"
     comprobante_asociado: ComprobanteAsociado | None = None
 
     def to_payload(self) -> dict:
         payload: dict = {
             "idempotency_key": self.idempotency_key,
             "concepto": int(self.concepto),
-            "emisor_condicion_iva": int(self.emisor_condicion_iva),
-            "receptor_doc_tipo": int(self.receptor_doc_tipo),
-            "receptor_doc_nro": self.receptor_doc_nro,
-            "receptor_condicion_iva": int(self.receptor_condicion_iva),
-            "fecha": self.fecha.isoformat(),
+            "receptor": self.receptor._to_dict(),
+            "items": [it._to_dict() for it in self.items],
             "moneda": self.moneda,
-            "cotizacion": str(self.cotizacion),
-            "importe_neto": str(self.importe_neto),
-            "importe_no_gravado": str(self.importe_no_gravado),
-            "importe_exento": str(self.importe_exento),
-            "items_iva": [i._to_dict() for i in self.items_iva],
+            "condicion_venta": self.condicion_venta,
             "tributos": [t._to_dict() for t in self.tributos],
             "opcionales": [o._to_dict() for o in self.opcionales],
-            "items": [it._to_dict() for it in self.items],
-            "emisor_razon_social": self.emisor_razon_social,
-            "emisor_domicilio": self.emisor_domicilio,
-            "emisor_iibb": self.emisor_iibb,
-            "receptor_nombre": self.receptor_nombre,
-            "receptor_domicilio": self.receptor_domicilio,
-            "condicion_venta": self.condicion_venta,
         }
         if self.punto_venta is not None:
             payload["punto_venta"] = self.punto_venta
+        if self.fecha is not None:
+            payload["fecha"] = self.fecha.isoformat()
         if self.fecha_serv_desde is not None:
             payload["fecha_serv_desde"] = self.fecha_serv_desde.isoformat()
         if self.fecha_serv_hasta is not None:
             payload["fecha_serv_hasta"] = self.fecha_serv_hasta.isoformat()
         if self.fecha_vto_pago is not None:
             payload["fecha_vto_pago"] = self.fecha_vto_pago.isoformat()
-        if self.alicuota_unica is not None:
-            payload["alicuota_unica"] = int(self.alicuota_unica)
         if self.forzar_cbte_tipo is not None:
             payload["forzar_cbte_tipo"] = int(self.forzar_cbte_tipo)
         if self.comprobante_asociado is not None:
@@ -220,12 +257,12 @@ class ComprobanteInput:
 
 @dataclass
 class SesionEmbebidaInput:
-    """Mismo espejo que `ComprobanteInput`, para
+    """Mismo body que `ComprobanteInput`, para
     `ArcaServiceClient.crear_sesion_embebida_comprobante`/`_nota_credito`/`_nota_debito`
-    -- pero SIN los campos de `receptor`: eso lo completa el comprador dentro del
-    `<iframe>`, no tu Plataforma. Por eso es un dataclass aparte y no `ComprobanteInput`
-    con esos campos opcionales -- `ComprobanteInput` los exige a propósito para
-    `emitir_comprobante` y compañía, y volverlos opcionales ahí debilitaría esa
+    -- pero SIN `receptor`: eso lo completa el comprador dentro del `<iframe>`, no
+    tu Plataforma. Por eso es un dataclass aparte y no `ComprobanteInput` con ese
+    campo opcional -- `ComprobanteInput` lo exige a propósito para
+    `emitir_comprobante` y compañía, y volverlo opcional ahí debilitaría esa
     validación para el camino que sí conoce al receptor.
 
     `comprobante_asociado` es obligatorio del lado servidor para
@@ -234,59 +271,39 @@ class SesionEmbebidaInput:
 
     idempotency_key: str
     concepto: int
-    emisor_condicion_iva: int
-    fecha: date
+    items: list[ItemFactura] = field(default_factory=list)
     punto_venta: int | None = None
+    fecha: date | None = None
     fecha_serv_desde: date | None = None
     fecha_serv_hasta: date | None = None
     fecha_vto_pago: date | None = None
     moneda: str = "PES"
-    cotizacion: Decimal = Decimal("1")
-    importe_neto: Decimal = Decimal("0")
-    importe_no_gravado: Decimal = Decimal("0")
-    importe_exento: Decimal = Decimal("0")
-    alicuota_unica: int | None = None
-    items_iva: list[ItemIva] = field(default_factory=list)
+    forzar_cbte_tipo: int | None = None
+    condicion_venta: str = "Contado"
     tributos: list[Tributo] = field(default_factory=list)
     opcionales: list[Opcional] = field(default_factory=list)
-    forzar_cbte_tipo: int | None = None
-    items: list[ItemFactura] = field(default_factory=list)
-    emisor_razon_social: str = ""
-    emisor_domicilio: str = ""
-    emisor_iibb: str = ""
-    condicion_venta: str = "Contado"
     comprobante_asociado: ComprobanteAsociado | None = None
 
     def to_payload(self) -> dict:
         payload: dict = {
             "idempotency_key": self.idempotency_key,
             "concepto": int(self.concepto),
-            "emisor_condicion_iva": int(self.emisor_condicion_iva),
-            "fecha": self.fecha.isoformat(),
+            "items": [it._to_dict() for it in self.items],
             "moneda": self.moneda,
-            "cotizacion": str(self.cotizacion),
-            "importe_neto": str(self.importe_neto),
-            "importe_no_gravado": str(self.importe_no_gravado),
-            "importe_exento": str(self.importe_exento),
-            "items_iva": [i._to_dict() for i in self.items_iva],
+            "condicion_venta": self.condicion_venta,
             "tributos": [t._to_dict() for t in self.tributos],
             "opcionales": [o._to_dict() for o in self.opcionales],
-            "items": [it._to_dict() for it in self.items],
-            "emisor_razon_social": self.emisor_razon_social,
-            "emisor_domicilio": self.emisor_domicilio,
-            "emisor_iibb": self.emisor_iibb,
-            "condicion_venta": self.condicion_venta,
         }
         if self.punto_venta is not None:
             payload["punto_venta"] = self.punto_venta
+        if self.fecha is not None:
+            payload["fecha"] = self.fecha.isoformat()
         if self.fecha_serv_desde is not None:
             payload["fecha_serv_desde"] = self.fecha_serv_desde.isoformat()
         if self.fecha_serv_hasta is not None:
             payload["fecha_serv_hasta"] = self.fecha_serv_hasta.isoformat()
         if self.fecha_vto_pago is not None:
             payload["fecha_vto_pago"] = self.fecha_vto_pago.isoformat()
-        if self.alicuota_unica is not None:
-            payload["alicuota_unica"] = int(self.alicuota_unica)
         if self.forzar_cbte_tipo is not None:
             payload["forzar_cbte_tipo"] = int(self.forzar_cbte_tipo)
         if self.comprobante_asociado is not None:

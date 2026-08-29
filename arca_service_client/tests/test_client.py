@@ -30,10 +30,12 @@ from arca_service_client import (
     ConfiguracionError,
     IdempotencyConflictError,
     InternoError,
+    ItemFactura,
     NotaExcedeComprobanteError,
     NotFoundError,
     PuntoVentaNoHabilitadoError,
     RateLimitedError,
+    Receptor,
     RequestError,
     ServicioNoDisponibleError,
     SesionEmbebidaInput,
@@ -60,13 +62,11 @@ def _comprobante(**overrides):
     kwargs = dict(
         idempotency_key="factura-1",
         concepto=1,
-        emisor_condicion_iva=1,
-        receptor_doc_tipo=96,
-        receptor_doc_nro="12345678",
-        receptor_condicion_iva=5,
+        receptor=Receptor(dni="12345678"),
         fecha=date(2026, 8, 18),
-        importe_neto=Decimal("1000.00"),
-        alicuota_unica=5,
+        items=[
+            ItemFactura(descripcion="Plan mensual", iva="21", precio_unitario=Decimal("1000.00"))
+        ],
     )
     kwargs.update(overrides)
     return ComprobanteInput(**kwargs)
@@ -76,10 +76,10 @@ def _sesion_embebida(**overrides):
     kwargs = dict(
         idempotency_key="factura-1",
         concepto=1,
-        emisor_condicion_iva=1,
         fecha=date(2026, 8, 18),
-        importe_neto=Decimal("1000.00"),
-        alicuota_unica=5,
+        items=[
+            ItemFactura(descripcion="Plan mensual", iva="21", precio_unitario=Decimal("1000.00"))
+        ],
     )
     kwargs.update(overrides)
     return SesionEmbebidaInput(**kwargs)
@@ -565,9 +565,7 @@ def test_crear_sesion_embebida_comprobante(client, httpx_mock):
     assert result.embed_url == "https://arca.test/embed/facturar/xyz"
     assert result.expires_at == datetime(2026, 8, 21, 22, 30, tzinfo=timezone.utc)
     # Sin receptor -- eso lo completa el comprador adentro del iframe, no esta llamada.
-    assert "receptor_doc_tipo" not in capturado["body"]
-    assert "receptor_doc_nro" not in capturado["body"]
-    assert "receptor_condicion_iva" not in capturado["body"]
+    assert "receptor" not in capturado["body"]
 
 
 def test_crear_sesion_embebida_nota_credito_manda_al_endpoint_de_notas_credito(client, httpx_mock):
@@ -606,16 +604,9 @@ def test_crear_sesion_embebida_nota_debito_manda_al_endpoint_de_notas_debito(cli
     assert result.embed_url == "https://arca.test/embed/facturar/nd-xyz"
 
 
-def test_sesion_embebida_input_to_payload_no_tiene_campos_de_receptor():
+def test_sesion_embebida_input_to_payload_no_tiene_receptor():
     payload = _sesion_embebida().to_payload()
-    for campo in (
-        "receptor_doc_tipo",
-        "receptor_doc_nro",
-        "receptor_condicion_iva",
-        "receptor_nombre",
-        "receptor_domicilio",
-    ):
-        assert campo not in payload
+    assert "receptor" not in payload
 
 
 # ---------------------------------------------------------------------------

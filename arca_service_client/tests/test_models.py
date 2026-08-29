@@ -13,10 +13,10 @@ from arca_service_client.models import (
     ComprobanteInput,
     EmisionResult,
     ItemFactura,
-    ItemIva,
     Opcional,
     PersonaArca,
     PreviewResult,
+    Receptor,
     SesionEmbebidaInput,
     SesionEmbebidaResult,
     Tributo,
@@ -54,11 +54,7 @@ def _comprobante_minimo(**overrides):
     kwargs = dict(
         idempotency_key="factura-1",
         concepto=1,
-        emisor_condicion_iva=1,
-        receptor_doc_tipo=96,
-        receptor_doc_nro="12345678",
-        receptor_condicion_iva=5,
-        fecha=date(2026, 8, 18),
+        receptor=Receptor(dni="12345678"),
     )
     kwargs.update(overrides)
     return ComprobanteInput(**kwargs)
@@ -68,25 +64,23 @@ def test_to_payload_campos_requeridos():
     payload = _comprobante_minimo().to_payload()
     assert payload["idempotency_key"] == "factura-1"
     assert payload["concepto"] == 1
-    assert payload["receptor_doc_nro"] == "12345678"
-    assert payload["fecha"] == "2026-08-18"
+    assert payload["receptor"]["dni"] == "12345678"
 
 
-def test_to_payload_defaults_de_importe_van_como_string_no_float():
+def test_to_payload_moneda_y_condicion_venta_van_siempre_con_su_default():
     payload = _comprobante_minimo().to_payload()
-    assert payload["importe_neto"] == "0"
-    assert payload["cotizacion"] == "1"
-    assert isinstance(payload["importe_neto"], str)
+    assert payload["moneda"] == "PES"
+    assert payload["condicion_venta"] == "Contado"
 
 
 def test_to_payload_omite_opcionales_ausentes():
     payload = _comprobante_minimo().to_payload()
     for campo in (
         "punto_venta",
+        "fecha",
         "fecha_serv_desde",
         "fecha_serv_hasta",
         "fecha_vto_pago",
-        "alicuota_unica",
         "forzar_cbte_tipo",
         "comprobante_asociado",
     ):
@@ -96,42 +90,97 @@ def test_to_payload_omite_opcionales_ausentes():
 def test_to_payload_incluye_opcionales_presentes():
     payload = _comprobante_minimo(
         punto_venta=3,
+        fecha=date(2026, 8, 18),
         fecha_serv_desde=date(2026, 8, 1),
         fecha_vto_pago=date(2026, 9, 1),
-        alicuota_unica=5,
         forzar_cbte_tipo=201,
     ).to_payload()
     assert payload["punto_venta"] == 3
+    assert payload["fecha"] == "2026-08-18"
     assert payload["fecha_serv_desde"] == "2026-08-01"
     assert payload["fecha_vto_pago"] == "2026-09-01"
-    assert payload["alicuota_unica"] == 5
     assert payload["forzar_cbte_tipo"] == 201
 
 
-def test_to_payload_items_iva_tributos_opcionales_items():
+def test_to_payload_receptor_con_cuit_omite_nombre_y_domicilio_ausentes():
+    payload = _comprobante_minimo(receptor=Receptor(cuit="30712345671")).to_payload()
+    assert payload["receptor"] == {
+        "consumidor_final": False,
+        "nombre": "",
+        "domicilio": "",
+        "cuit": "30712345671",
+    }
+
+
+def test_to_payload_receptor_consumidor_final_no_manda_cuit_ni_dni():
+    payload = _comprobante_minimo(receptor=Receptor(consumidor_final=True)).to_payload()
+    assert payload["receptor"]["consumidor_final"] is True
+    assert "cuit" not in payload["receptor"]
+    assert "dni" not in payload["receptor"]
+
+
+def test_to_payload_receptor_email_va_con_cualquier_forma():
+    payload = _comprobante_minimo(
+        receptor=Receptor(cuit="30712345671", email="cliente@ejemplo.com")
+    ).to_payload()
+    assert payload["receptor"]["email"] == "cliente@ejemplo.com"
+
+
+def test_to_payload_tributos_y_opcionales():
     comprobante = _comprobante_minimo(
-        items_iva=[ItemIva(alicuota_id=5, base_imponible=Decimal("1000.00"))],
         tributos=[
             Tributo(
-                id=1, base_imponible=Decimal("100"), alicuota_pct=Decimal("3"), importe=Decimal("3")
+                codigo=2,
+                base_imponible=Decimal("1000.00"),
+                alicuota_pct=Decimal("3"),
+                importe=Decimal("30.00"),
+                descripcion="Percepción de IIBB",
             )
         ],
-        opcionales=[Opcional(id="17", valor="alias-cbu")],
-        items=[
-            ItemFactura(
-                descripcion="Consultoría", precio_unitario=Decimal("1000"), subtotal=Decimal("1000")
-            )
-        ],
+        opcionales=[Opcional(codigo="2101", valor="0110599520000001234567")],
     )
     payload = comprobante.to_payload()
 
-    assert payload["items_iva"] == [{"alicuota_id": 5, "base_imponible": "1000.00"}]
     assert payload["tributos"] == [
-        {"id": 1, "base_imponible": "100", "alicuota_pct": "3", "importe": "3", "desc": ""}
+        {
+            "codigo": 2,
+            "base_imponible": "1000.00",
+            "alicuota_pct": "3",
+            "importe": "30.00",
+            "descripcion": "Percepción de IIBB",
+        }
     ]
-    assert payload["opcionales"] == [{"id": "17", "valor": "alias-cbu"}]
-    assert payload["items"][0]["descripcion"] == "Consultoría"
+    assert payload["opcionales"] == [{"codigo": "2101", "valor": "0110599520000001234567"}]
+
+
+def test_to_payload_items_precio_unitario_o_precio_final_nunca_los_dos():
+    comprobante = _comprobante_minimo(
+        items=[
+            ItemFactura(
+                descripcion="Con IVA discriminado", iva="21", precio_unitario=Decimal("1000")
+            ),
+            ItemFactura(descripcion="Precio de mostrador", iva="21", precio_final=Decimal("1210")),
+        ]
+    )
+    payload = comprobante.to_payload()
+
+    assert payload["items"][0]["precio_unitario"] == "1000"
+    assert "precio_final" not in payload["items"][0]
+    assert payload["items"][1]["precio_final"] == "1210"
+    assert "precio_unitario" not in payload["items"][1]
     assert payload["items"][0]["cantidad"] == "1"  # default de ItemFactura
+
+
+def test_to_payload_iva_exento_y_no_gravado_son_literales_no_porcentaje():
+    comprobante = _comprobante_minimo(
+        items=[
+            ItemFactura(descripcion="Exento", iva="exento", precio_unitario=Decimal("100")),
+            ItemFactura(descripcion="No gravado", iva="no_gravado", precio_unitario=Decimal("100")),
+        ]
+    )
+    payload = comprobante.to_payload()
+    assert payload["items"][0]["iva"] == "exento"
+    assert payload["items"][1]["iva"] == "no_gravado"
 
 
 def test_to_payload_comprobante_asociado_para_nota_de_credito():
@@ -155,6 +204,21 @@ def test_to_payload_comprobante_asociado_omite_cuit_y_fecha_ausentes():
     )
     payload = comprobante.to_payload()
     assert payload["comprobante_asociado"] == {"tipo": 1, "punto_venta": 3, "numero": 100}
+
+
+def test_to_payload_comprobante_asociado_cae_e_importe_total_van_juntos():
+    comprobante = _comprobante_minimo(
+        comprobante_asociado=ComprobanteAsociado(
+            tipo=1,
+            punto_venta=3,
+            numero=100,
+            cae="71234567890123",
+            importe_total=Decimal("1210.00"),
+        )
+    )
+    payload = comprobante.to_payload()
+    assert payload["comprobante_asociado"]["cae"] == "71234567890123"
+    assert payload["comprobante_asociado"]["importe_total"] == "1210.00"
 
 
 def test_preview_result_from_json():
@@ -314,27 +378,17 @@ def test_sesion_embebida_input_to_payload_no_incluye_receptor():
     payload = SesionEmbebidaInput(
         idempotency_key="factura-1",
         concepto=1,
-        emisor_condicion_iva=1,
         fecha=date(2026, 8, 18),
     ).to_payload()
     assert payload["idempotency_key"] == "factura-1"
     assert payload["fecha"] == "2026-08-18"
-    for campo in (
-        "receptor_doc_tipo",
-        "receptor_doc_nro",
-        "receptor_condicion_iva",
-        "receptor_nombre",
-        "receptor_domicilio",
-    ):
-        assert campo not in payload
+    assert "receptor" not in payload
 
 
 def test_sesion_embebida_input_to_payload_incluye_comprobante_asociado():
     payload = SesionEmbebidaInput(
         idempotency_key="nc-1",
         concepto=1,
-        emisor_condicion_iva=1,
-        fecha=date(2026, 8, 18),
         comprobante_asociado=ComprobanteAsociado(tipo=1, punto_venta=3, numero=100),
     ).to_payload()
     assert payload["comprobante_asociado"] == {"tipo": 1, "punto_venta": 3, "numero": 100}

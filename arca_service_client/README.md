@@ -101,16 +101,14 @@ commiteado ni en un log).
 ## Uso
 
 ```python
-from datetime import date
 from decimal import Decimal
 
 from arca_service_client import (
     ArcaServiceClient,
-    Alicuota,
     Concepto,
-    CondicionIva,
-    DocTipo,
     ComprobanteInput,
+    ItemFactura,
+    Receptor,
 )
 
 client = ArcaServiceClient(
@@ -131,13 +129,10 @@ emision = client.emitir_comprobante(
     ComprobanteInput(
         idempotency_key="factura-8231",
         concepto=Concepto.PRODUCTOS,
-        emisor_condicion_iva=CondicionIva.RESPONSABLE_INSCRIPTO,
-        receptor_doc_tipo=DocTipo.DNI,
-        receptor_doc_nro="12345678",
-        receptor_condicion_iva=CondicionIva.CONSUMIDOR_FINAL,
-        fecha=date.today(),
-        importe_neto=Decimal("1000.00"),
-        alicuota_unica=Alicuota.IVA_21,
+        receptor=Receptor(dni="12345678"),
+        items=[
+            ItemFactura(descripcion="Consultoría", iva="21", precio_unitario=Decimal("1000.00")),
+        ],
     ),
 )
 print(emision.estado)  # "pending" — todavía no hay CAE
@@ -145,6 +140,13 @@ print(emision.estado)  # "pending" — todavía no hay CAE
 # Pollear hasta que deje de estar pending, o esperar el webhook.
 emision = client.get_comprobante(onboarding.external_ref, "factura-8231")
 ```
+
+`items` es la única fuente de los importes -- no hay un `importe_neto` aparte para
+reconciliar. Cada `ItemFactura` lleva `iva` como el porcentaje en string (`"21"`,
+`"10.5"`, `"0"`, o `"exento"`/`"no_gravado"`) y, en vez de `precio_unitario`, puede
+llevar `precio_final` (con IVA incluido) — nunca los dos juntos. `receptor` identifica a
+quién se le factura con exactamente una forma: `Receptor(cuit=...)`, `Receptor(dni=...,
+nombre=...)` o `Receptor(consumidor_final=True)`.
 
 O como context manager, para que la conexión se cierre sola:
 
@@ -247,23 +249,21 @@ resultado = client.crear_sesion_embebida_comprobante(
     SesionEmbebidaInput(
         idempotency_key="factura-8231",
         concepto=Concepto.PRODUCTOS,
-        emisor_condicion_iva=CondicionIva.RESPONSABLE_INSCRIPTO,
-        fecha=date.today(),
-        importe_neto=Decimal("1000.00"),
-        alicuota_unica=Alicuota.IVA_21,
+        items=[
+            ItemFactura(descripcion="Consultoría", iva="21", precio_unitario=Decimal("1000.00")),
+        ],
     ),
 )
 resultado.embed_url    # listo para <iframe src="...">
 resultado.expires_at   # datetime UTC -- 30 min desde que se creó la sesión
 ```
 
-`SesionEmbebidaInput` es el mismo body que `ComprobanteInput` pero SIN los campos de
-receptor (`receptor_doc_tipo`/`receptor_doc_nro`/`receptor_condicion_iva`/
-`receptor_nombre`/`receptor_domicilio`) -- eso lo completa el comprador adentro del
-iframe. El importe y todo lo demás quedan fijos desde este llamado: la página embebida
-no los puede cambiar, y un ítem mal armado da error acá y no media hora después con
-alguien mirando un iframe que no carga. `crear_sesion_embebida_nota_credito`/
-`_nota_debito` exigen `comprobante_asociado`, igual que sus equivalentes `emitir_*`.
+`SesionEmbebidaInput` es el mismo body que `ComprobanteInput` pero SIN `receptor` -- eso
+lo completa el comprador adentro del iframe. El importe y todo lo demás quedan fijos
+desde este llamado: la página embebida no los puede cambiar, y un ítem mal armado da
+error acá y no media hora después con alguien mirando un iframe que no carga.
+`crear_sesion_embebida_nota_credito`/`_nota_debito` exigen `comprobante_asociado`, igual
+que sus equivalentes `emitir_*`.
 
 ## `idempotency_key`
 

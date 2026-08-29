@@ -1,6 +1,6 @@
 """arca_service_client — cliente HTTP oficial para arca-service (tixenre/arca-service).
 
-    from arca_service_client import ArcaServiceClient, ComprobanteInput, CondicionIva, DocTipo
+    from arca_service_client import ArcaServiceClient, ComprobanteInput, ItemFactura, Receptor
 
     client = ArcaServiceClient(
         base_url="https://arca.tudominio.com",
@@ -18,13 +18,8 @@
         ComprobanteInput(
             idempotency_key="factura-8231",
             concepto=Concepto.PRODUCTOS,
-            emisor_condicion_iva=CondicionIva.RESPONSABLE_INSCRIPTO,
-            receptor_doc_tipo=DocTipo.DNI,
-            receptor_doc_nro="12345678",
-            receptor_condicion_iva=CondicionIva.CONSUMIDOR_FINAL,
-            fecha=date.today(),
-            importe_neto=Decimal("1000.00"),
-            alicuota_unica=Alicuota.IVA_21,
+            receptor=Receptor(dni="12345678"),
+            items=[ItemFactura(descripcion="Producto", iva="21", precio_unitario=Decimal("1000.00"))],
         ),
     )
 
@@ -40,7 +35,7 @@ from __future__ import annotations
 from .async_client import AsyncArcaServiceClient
 from .client import ArcaServiceClient
 from .crypto import EnvelopeError, seal
-from .enums import Alicuota, CbteTipo, Concepto, CondicionIva, DocTipo
+from .enums import CbteTipo, Concepto, CondicionIva, DocTipo
 from .exceptions import (
     AfipError,
     AfipErrorDetail,
@@ -82,7 +77,6 @@ from .models import (
     Importes,
     Impuesto,
     ItemFactura,
-    ItemIva,
     LoteItemResult,
     OnboardingResult,
     Opcional,
@@ -91,6 +85,7 @@ from .models import (
     PuntosVentaResult,
     PuntoVentaExcluido,
     PuntoVentaHabilitado,
+    Receptor,
     ReceptorInfo,
     Regimen,
     SesionEmbebidaInput,
@@ -99,14 +94,13 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
 __all__ = [
     "__version__",
     "ArcaServiceClient",
     "AsyncArcaServiceClient",
     # enums (códigos AFIP — ver enums.py)
-    "Alicuota",
     "CbteTipo",
     "Concepto",
     "CondicionIva",
@@ -115,8 +109,8 @@ __all__ = [
     "ComprobanteAsociado",
     "ComprobanteInput",
     "ItemFactura",
-    "ItemIva",
     "Opcional",
+    "Receptor",
     "SesionEmbebidaInput",
     "Tributo",
     # response
