@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import ssl
 from dataclasses import dataclass
+from datetime import date
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -36,7 +37,9 @@ from .models import (
     DiagnosticoResult,
     EmbedTokenResult,
     EmisionResult,
+    FacturacionResult,
     GenerarCsrResult,
+    ListaComprobantesResult,
     LoteItemResult,
     OnboardingResult,
     PersonaArca,
@@ -129,6 +132,18 @@ class AsyncArcaServiceClient:
         )
         _raise_for_status(resp, conflict_error=BonificadoLimiteError)
         return BonificadoResult._from_json(resp.json())
+
+    async def set_facturacion(
+        self, external_ref: str, *, iibb: str | None = None, nombre_comercial: str | None = None
+    ) -> FacturacionResult:
+        payload: dict = {}
+        if iibb is not None:
+            payload["iibb"] = iibb
+        if nombre_comercial is not None:
+            payload["nombre_comercial"] = nombre_comercial
+        resp = await self._http.put(f"/clientes/{external_ref}/facturacion", json=payload)
+        _raise_for_status(resp)
+        return FacturacionResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
     # Onboarding de credencial
@@ -249,6 +264,101 @@ class AsyncArcaServiceClient:
         return PreviewResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
+    # Preview renderizado — el .html/.pdf/.imagen de un preview, antes de
+    # emitir. `layout` va en el mismo body que el resto del comprobante.
+    # ------------------------------------------------------------------
+
+    async def preview_comprobante_html(
+        self, external_ref: str, comprobante: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> str:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/comprobantes/preview/comprobante.html",
+            json={**comprobante.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.text
+
+    async def preview_comprobante_pdf(
+        self, external_ref: str, comprobante: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> bytes:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/comprobantes/preview/comprobante.pdf",
+            json={**comprobante.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.content
+
+    async def preview_comprobante_imagen(
+        self, external_ref: str, comprobante: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> bytes:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/comprobantes/preview/comprobante.imagen",
+            json={**comprobante.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.content
+
+    async def preview_nota_credito_html(
+        self, external_ref: str, nota_credito: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> str:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/notas-credito/preview/comprobante.html",
+            json={**nota_credito.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.text
+
+    async def preview_nota_credito_pdf(
+        self, external_ref: str, nota_credito: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> bytes:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/notas-credito/preview/comprobante.pdf",
+            json={**nota_credito.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.content
+
+    async def preview_nota_credito_imagen(
+        self, external_ref: str, nota_credito: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> bytes:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/notas-credito/preview/comprobante.imagen",
+            json={**nota_credito.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.content
+
+    async def preview_nota_debito_html(
+        self, external_ref: str, nota_debito: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> str:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/notas-debito/preview/comprobante.html",
+            json={**nota_debito.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.text
+
+    async def preview_nota_debito_pdf(
+        self, external_ref: str, nota_debito: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> bytes:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/notas-debito/preview/comprobante.pdf",
+            json={**nota_debito.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.content
+
+    async def preview_nota_debito_imagen(
+        self, external_ref: str, nota_debito: ComprobanteInput, *, layout: str = LAYOUT_DEFAULT
+    ) -> bytes:
+        resp = await self._http.post(
+            f"/clientes/{external_ref}/notas-debito/preview/comprobante.imagen",
+            json={**nota_debito.to_payload(), "layout": layout},
+        )
+        _raise_for_status(resp)
+        return resp.content
+
+    # ------------------------------------------------------------------
     # Emisión — asincrónica del lado de arca-service (responde `pending` de
     # inmediato, el resultado real llega por polling/webhook) -- no
     # confundir con que el MÉTODO acá sea `async def`, son dos cosas
@@ -286,6 +396,30 @@ class AsyncArcaServiceClient:
         resp = await self._http.get(f"/clientes/{external_ref}/comprobantes/{idempotency_key}")
         _raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
+
+    async def listar_comprobantes(
+        self,
+        external_ref: str,
+        *,
+        estado: str | None = None,
+        tipo: str | None = None,
+        creado_desde: date | None = None,
+        creado_hasta: date | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> ListaComprobantesResult:
+        params: dict = {"limit": limit, "offset": offset}
+        if estado is not None:
+            params["estado"] = estado
+        if tipo is not None:
+            params["tipo"] = tipo
+        if creado_desde is not None:
+            params["creado_desde"] = creado_desde.isoformat()
+        if creado_hasta is not None:
+            params["creado_hasta"] = creado_hasta.isoformat()
+        resp = await self._http.get(f"/clientes/{external_ref}/comprobantes", params=params)
+        _raise_for_status(resp)
+        return ListaComprobantesResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
     # Sesión embebida (iframe) -- ver

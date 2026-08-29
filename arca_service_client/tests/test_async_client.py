@@ -6,9 +6,11 @@ versión async hace exactamente lo mismo, no para redocumentar el contrato."""
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+import httpx
 import pytest
 import pytest_asyncio
 
@@ -285,6 +287,30 @@ async def test_set_bonificado_404_cliente_no_vinculado_levanta_not_found_error(c
         await client.set_bonificado("cliente-1", True)
 
 
+async def test_set_facturacion_manda_los_dos_campos(client, httpx_mock):
+    httpx_mock.add_response(
+        method="PUT",
+        url=f"{_API}/clientes/cliente-1/facturacion",
+        match_json={"iibb": "901-123456-7", "nombre_comercial": "La Esquina"},
+        json={"iibb": "901-123456-7", "nombre_comercial": "La Esquina"},
+    )
+    result = await client.set_facturacion(
+        "cliente-1", iibb="901-123456-7", nombre_comercial="La Esquina"
+    )
+    assert result.iibb == "901-123456-7"
+    assert result.nombre_comercial == "La Esquina"
+
+
+async def test_set_facturacion_omite_el_campo_no_pasado(client, httpx_mock):
+    httpx_mock.add_response(
+        method="PUT",
+        url=f"{_API}/clientes/cliente-1/facturacion",
+        match_json={"iibb": "901-123456-7"},
+        json={"iibb": "901-123456-7", "nombre_comercial": ""},
+    )
+    await client.set_facturacion("cliente-1", iibb="901-123456-7")
+
+
 # ---------------------------------------------------------------------------
 # Onboarding de credencial
 # ---------------------------------------------------------------------------
@@ -511,6 +537,158 @@ async def test_get_comprobante_con_observaciones(client, httpx_mock):
     result = await client.get_comprobante("cliente-1", "factura-1")
     assert result.errores is None
     assert result.observaciones == ["10063: el documento del receptor no figura en el padrón"]
+
+
+async def test_listar_comprobantes_sin_filtros_manda_limit_y_offset_default(client, httpx_mock):
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes?limit=50&offset=0",
+        json={
+            "items": [
+                _emision_json(idempotency_key="factura-2"),
+                _emision_json(idempotency_key="factura-1"),
+            ],
+            "count": 2,
+        },
+    )
+    result = await client.listar_comprobantes("cliente-1")
+    assert result.count == 2
+    assert [e.idempotency_key for e in result.items] == ["factura-2", "factura-1"]
+
+
+async def test_listar_comprobantes_manda_los_filtros_como_query_params(client, httpx_mock):
+    httpx_mock.add_response(
+        method="GET",
+        url=(
+            f"{_API}/clientes/cliente-1/comprobantes"
+            "?estado=issued&tipo=factura&creado_desde=2026-08-01&creado_hasta=2026-08-31"
+            "&limit=10&offset=20"
+        ),
+        json={"items": [], "count": 0},
+    )
+    result = await client.listar_comprobantes(
+        "cliente-1",
+        estado="issued",
+        tipo="factura",
+        creado_desde=date(2026, 8, 1),
+        creado_hasta=date(2026, 8, 31),
+        limit=10,
+        offset=20,
+    )
+    assert result.items == ()
+    assert result.count == 0
+
+
+# ---------------------------------------------------------------------------
+# Preview renderizado -- .html/.pdf/.imagen de un preview, antes de emitir.
+# ---------------------------------------------------------------------------
+
+
+async def test_preview_comprobante_html_manda_layout_en_el_body(client, httpx_mock):
+    capturado = {}
+
+    def _responder(request):
+        capturado["body"] = json.loads(request.content)
+        return httpx.Response(200, text="<html>VISTA PREVIA...</html>")
+
+    httpx_mock.add_callback(
+        _responder,
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes/preview/comprobante.html",
+    )
+    resultado = await client.preview_comprobante_html("cliente-1", _comprobante())
+    assert resultado == "<html>VISTA PREVIA...</html>"
+    assert capturado["body"]["layout"] == "oficial"
+
+
+async def test_preview_comprobante_pdf_layout_explicito(client, httpx_mock):
+    capturado = {}
+
+    def _responder(request):
+        capturado["body"] = json.loads(request.content)
+        return httpx.Response(
+            200, content=b"%PDF-1.4...", headers={"Content-Type": "application/pdf"}
+        )
+
+    httpx_mock.add_callback(
+        _responder,
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes/preview/comprobante.pdf",
+    )
+    resultado = await client.preview_comprobante_pdf(
+        "cliente-1", _comprobante(), layout="simplificada"
+    )
+    assert resultado == b"%PDF-1.4..."
+    assert capturado["body"]["layout"] == "simplificada"
+
+
+async def test_preview_comprobante_imagen(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes/preview/comprobante.imagen",
+        content=b"\x89PNG...",
+    )
+    assert await client.preview_comprobante_imagen("cliente-1", _comprobante()) == b"\x89PNG..."
+
+
+async def test_preview_nota_credito_html_manda_al_endpoint_de_notas_credito(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-credito/preview/comprobante.html",
+        text="<html>...</html>",
+    )
+    nota = _comprobante(comprobante_asociado=ComprobanteAsociado(tipo=3, punto_venta=3, numero=100))
+    assert await client.preview_nota_credito_html("cliente-1", nota) == "<html>...</html>"
+
+
+async def test_preview_nota_debito_pdf_manda_al_endpoint_de_notas_debito(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-debito/preview/comprobante.pdf",
+        content=b"%PDF-1.4...",
+    )
+    nota = _comprobante(comprobante_asociado=ComprobanteAsociado(tipo=2, punto_venta=3, numero=100))
+    assert await client.preview_nota_debito_pdf("cliente-1", nota) == b"%PDF-1.4..."
+
+
+async def test_preview_nota_credito_imagen(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-credito/preview/comprobante.imagen",
+        content=b"\x89PNG...",
+    )
+    nota = _comprobante(comprobante_asociado=ComprobanteAsociado(tipo=3, punto_venta=3, numero=100))
+    assert await client.preview_nota_credito_imagen("cliente-1", nota) == b"\x89PNG..."
+
+
+async def test_preview_nota_debito_html(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-debito/preview/comprobante.html",
+        text="<html>...</html>",
+    )
+    nota = _comprobante(comprobante_asociado=ComprobanteAsociado(tipo=2, punto_venta=3, numero=100))
+    assert await client.preview_nota_debito_html("cliente-1", nota) == "<html>...</html>"
+
+
+async def test_preview_nota_credito_pdf(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-credito/preview/comprobante.pdf",
+        content=b"%PDF-1.4...",
+    )
+    nota = _comprobante(comprobante_asociado=ComprobanteAsociado(tipo=3, punto_venta=3, numero=100))
+    assert await client.preview_nota_credito_pdf("cliente-1", nota) == b"%PDF-1.4..."
+
+
+async def test_preview_nota_debito_imagen(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-debito/preview/comprobante.imagen",
+        content=b"\x89PNG...",
+    )
+    nota = _comprobante(comprobante_asociado=ComprobanteAsociado(tipo=2, punto_venta=3, numero=100))
+    assert await client.preview_nota_debito_imagen("cliente-1", nota) == b"\x89PNG..."
 
 
 # ---------------------------------------------------------------------------

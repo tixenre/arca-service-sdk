@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+from arca_service_client import AfipErrorDetail
 from arca_service_client.models import (
     ComprobanteAsociado,
     ComprobanteInput,
@@ -360,6 +361,8 @@ def test_emision_result_from_json_sin_observaciones_queda_none():
 
 
 def test_emision_result_from_json_error_con_errores():
+    """`errores` es una lista de objetos `{codigo, mensaje}` -- el mismo shape que
+    `AfipErrorDetail`, no strings sueltos."""
     data = {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "idempotency_key": "factura-1",
@@ -367,11 +370,13 @@ def test_emision_result_from_json_error_con_errores():
         "comprobante": {"tipo": "factura", "fecha": "2026-08-18"},
         "importes": _importes_json(),
         "receptor": _receptor_json(),
-        "errores": ["10016: La fecha del comprobante está fuera de rango"],
+        "errores": [{"codigo": 10016, "mensaje": "La fecha del comprobante está fuera de rango"}],
     }
     result = EmisionResult._from_json(data)
     assert result.estado == "error"
-    assert result.errores == ["10016: La fecha del comprobante está fuera de rango"]
+    assert result.errores == (
+        AfipErrorDetail(codigo=10016, mensaje="La fecha del comprobante está fuera de rango"),
+    )
 
 
 def test_sesion_embebida_input_to_payload_no_incluye_receptor():

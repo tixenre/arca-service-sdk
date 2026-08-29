@@ -15,6 +15,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
+from .exceptions import AfipErrorDetail
+
 
 def _dec(v: Any) -> Decimal:
     return v if isinstance(v, Decimal) else Decimal(str(v))
@@ -341,6 +343,20 @@ class BonificadoResult:
     @staticmethod
     def _from_json(d: dict) -> BonificadoResult:
         return BonificadoResult(bonificado=d["bonificado"])
+
+
+@dataclass(frozen=True)
+class FacturacionResult:
+    """Respuesta de `ArcaServiceClient.set_facturacion` — el `iibb`/`nombre_comercial` YA
+    guardado (no un eco ciego de lo que mandaste). Razón social y domicilio NO están
+    acá: los trae el padrón de AFIP, no se configuran por este medio."""
+
+    iibb: str
+    nombre_comercial: str
+
+    @staticmethod
+    def _from_json(d: dict) -> FacturacionResult:
+        return FacturacionResult(iibb=d["iibb"], nombre_comercial=d["nombre_comercial"])
 
 
 @dataclass(frozen=True)
@@ -781,13 +797,14 @@ class EmisionResult:
     cae: str = ""
     cae_vencimiento: date | None = None
     qr_url: str = ""
-    errores: list | None = None
+    errores: tuple[AfipErrorDetail, ...] | None = None
     observaciones: list[str] | None = None
     webhook_delivered: bool | None = None
     webhook_last_error: str = ""
 
     @staticmethod
     def _from_json(d: dict) -> EmisionResult:
+        errores = d.get("errores")
         return EmisionResult(
             id=d["id"],
             idempotency_key=d["idempotency_key"],
@@ -798,10 +815,32 @@ class EmisionResult:
             cae=d.get("cae", ""),
             cae_vencimiento=_fecha(d.get("cae_vencimiento")),
             qr_url=d.get("qr_url", ""),
-            errores=d.get("errores"),
+            errores=(
+                tuple(AfipErrorDetail(codigo=e["codigo"], mensaje=e["mensaje"]) for e in errores)
+                if errores is not None
+                else None
+            ),
             observaciones=d.get("observaciones"),
             webhook_delivered=d.get("webhook_delivered"),
             webhook_last_error=d.get("webhook_last_error", ""),
+        )
+
+
+@dataclass(frozen=True)
+class ListaComprobantesResult:
+    """Respuesta de `ArcaServiceClient.listar_comprobantes` -- `items`, más nuevo primero,
+    con el mismo shape que `EmisionResult`. `count` es el total que matchea los filtros
+    (para paginar con `limit`/`offset`), no `len(items)` -- son iguales solo cuando todo
+    entra en una página."""
+
+    items: tuple[EmisionResult, ...]
+    count: int
+
+    @staticmethod
+    def _from_json(d: dict) -> ListaComprobantesResult:
+        return ListaComprobantesResult(
+            items=tuple(EmisionResult._from_json(item) for item in d["items"]),
+            count=d["count"],
         )
 
 

@@ -198,6 +198,14 @@ vínculo con ninguna otra Plataforma. Activar un vínculo nuevo está sujeto a u
 seguridad configurado del lado de arca-service (`BonificadoLimiteError`, 409, ver
 "Errores" abajo); desactivar nunca choca contra el límite.
 
+## Datos de facturación: `set_facturacion`
+
+`set_facturacion(external_ref, iibb="901-123456-7", nombre_comercial="La Esquina")`
+configura, una sola vez por Cliente, lo único del emisor que el padrón de AFIP no
+tiene y que se usa al renderizar sus comprobantes (`.html`/`.pdf`/`.imagen`). Razón
+social y domicilio no se aceptan acá: los trae el padrón, no hay dos fuentes para el
+mismo dato. Los dos parámetros son opcionales — pasá solo el que quieras actualizar.
+
 ## Emisión: siempre asincrónica
 
 `emitir_comprobante`/`emitir_nota_credito` responden `estado="pending"` de inmediato —
@@ -232,6 +240,42 @@ lee plata de verdad y no se entera por una excepción.
 que SÍ autorizó (ej. el documento del receptor no figura en el padrón, una fecha al
 límite) — a diferencia de `errores`, no bloquean nada ni cambian `estado`. Vale la pena
 mostrárselos a quien emitió en vez de descartarlos.
+
+`errores` (con `estado="error"`) es una lista de `AfipErrorDetail` (`codigo`/`mensaje`,
+el código de rechazo de AFIP tal cual, sin masticar) — mismo objeto que
+`AfipRechazoError.afip` para el rechazo síncrono en un `preview_comprobante`.
+
+### Listar: `listar_comprobantes`
+
+`listar_comprobantes(external_ref)` trae todo lo que este Cliente tiene
+emitido/pendiente/en error, más nuevo primero — mismo shape de `EmisionResult` por
+ítem. Filtrable por `estado`/`tipo`/`creado_desde`/`creado_hasta`, paginado con
+`limit` (50 default, 200 máximo)/`offset`:
+
+```python
+pagina = client.listar_comprobantes(
+    onboarding.external_ref, estado="issued", limit=50, offset=0
+)
+pagina.count           # total que matchea el filtro, no `len(pagina.items)`
+pagina.items[0].estado
+```
+
+`creado_desde`/`creado_hasta` filtran por cuándo se PIDIÓ la emisión, no por la fecha
+fiscal del comprobante. Sin resultados es una lista vacía, nunca un 404.
+
+### Preview renderizado: `preview_comprobante_html`/`_pdf`/`_imagen`
+
+Mismo patrón que `get_comprobante_html`/`_pdf`/`_imagen` (ver "Vista embebible" abajo),
+pero ANTES de emitir: nada se persiste, y el resultado viene marcado como vista previa
+(`"SIN EMITIR — NO VÁLIDO"`, sin número real). Sirve para mostrarle a alguien cómo va a
+quedar el comprobante antes de confirmar una acción fiscal irreversible — complementa a
+`preview_comprobante` (que solo da los importes), no lo reemplaza. Mismos tres métodos
+para `_nota_credito_`/`_nota_debito_`:
+
+```python
+html = client.preview_comprobante_html(onboarding.external_ref, comprobante)
+pdf = client.preview_nota_credito_pdf(onboarding.external_ref, nota_credito)
+```
 
 ### Sesión embebida: facturar sin conocer al receptor
 

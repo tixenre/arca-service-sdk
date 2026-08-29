@@ -73,10 +73,12 @@ from .models import (
     Domicilio,
     EmbedTokenResult,
     EmisionResult,
+    FacturacionResult,
     GenerarCsrResult,
     Importes,
     Impuesto,
     ItemFactura,
+    ListaComprobantesResult,
     LoteItemResult,
     OnboardingResult,
     Opcional,
@@ -94,7 +96,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 
 __all__ = [
     "__version__",
@@ -127,8 +129,10 @@ __all__ = [
     "Domicilio",
     "EmbedTokenResult",
     "EmisionResult",
+    "FacturacionResult",
     "GenerarCsrResult",
     "Impuesto",
+    "ListaComprobantesResult",
     "LoteItemResult",
     "OnboardingResult",
     "PersonaArca",
