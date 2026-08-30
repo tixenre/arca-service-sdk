@@ -4,6 +4,7 @@ ver cli.py). `isolated_config_dir` (conftest.py) asegura que ningún test toque 
 
 from __future__ import annotations
 
+import os
 import stat
 import sys
 
@@ -13,7 +14,10 @@ from arca_service_client.local_config import (
     CredentialsNotFoundError,
     Profile,
     config_dir,
+    discard_pending_signup,
+    load_pending_signup,
     load_profile,
+    save_pending_signup,
     save_profile,
 )
 
@@ -66,8 +70,6 @@ def test_save_profile_deja_los_archivos_sensibles_con_permisos_restrictivos(
 
     assert stat.S_IMODE(config_dir().stat().st_mode) == 0o700
     assert stat.S_IMODE(open(loaded.client_cert_path, "rb").fileno().__index__() and 0 or 0) == 0
-    import os
-
     assert stat.S_IMODE(os.stat(loaded.client_cert_path).st_mode) == 0o600
     assert stat.S_IMODE(os.stat(loaded.client_key_path).st_mode) == 0o600
     assert stat.S_IMODE(os.stat(config_dir() / "credentials.json").st_mode) == 0o600
@@ -91,3 +93,43 @@ def test_load_profile_inexistente_da_credentials_not_found_error(isolated_config
 def test_config_dir_respeta_xdg_config_home(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     assert config_dir() == tmp_path / "arca-service"
+
+
+def test_save_y_load_pending_signup_ida_y_vuelta(isolated_config_dir):
+    guardado = save_pending_signup(
+        "default", base_url="https://arca.test", slug="acme", key_pem="clave-de-prueba"
+    )
+    cargado = load_pending_signup("default")
+
+    assert cargado == guardado
+    assert cargado.base_url == "https://arca.test"
+    assert cargado.slug == "acme"
+    with open(cargado.key_path) as f:
+        assert f.read() == "clave-de-prueba"
+
+
+def test_load_pending_signup_inexistente_da_none(isolated_config_dir):
+    assert load_pending_signup("no-existe") is None
+
+
+def test_discard_pending_signup_borra_el_registro_y_el_archivo(isolated_config_dir):
+    pending = save_pending_signup(
+        "default", base_url="https://arca.test", slug="acme", key_pem="clave-de-prueba"
+    )
+
+    discard_pending_signup("default")
+
+    assert load_pending_signup("default") is None
+    assert not os.path.exists(pending.key_path)
+
+
+def test_discard_pending_signup_inexistente_no_revienta(isolated_config_dir):
+    discard_pending_signup("no-existe")
+
+
+def test_dos_pending_signups_conviven_sin_pisarse(isolated_config_dir):
+    save_pending_signup("acme", base_url="https://arca.test", slug="acme", key_pem="clave-acme")
+    save_pending_signup("beta", base_url="https://arca.test", slug="beta", key_pem="clave-beta")
+
+    assert load_pending_signup("acme").slug == "acme"
+    assert load_pending_signup("beta").slug == "beta"

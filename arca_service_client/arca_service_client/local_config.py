@@ -52,6 +52,19 @@ class Profile:
     cert_not_after: str | None = None
 
 
+@dataclass
+class PendingSignup:
+    """Un `request-invite --con-csr` en danza: el CSR ya se mandó, la clave privada
+    correspondiente ya está en disco (nunca viajó a ningún lado), pero el certificado
+    todavía no llegó -- lo entrega un operador de arca-service por canal seguro después
+    de aprobar la solicitud. `completar-signup` (ver cli.py) junta esta clave con ESE
+    certificado para terminar de armar el perfil."""
+
+    base_url: str
+    slug: str
+    key_path: str
+
+
 def config_dir() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "arca-service"
@@ -59,6 +72,10 @@ def config_dir() -> Path:
 
 def _credentials_path() -> Path:
     return config_dir() / "credentials.json"
+
+
+def _pending_signups_path() -> Path:
+    return config_dir() / "pending_signups.json"
 
 
 def _chmod_best_effort(path: Path, mode: int) -> None:
@@ -86,13 +103,13 @@ def save_profile(name: str, profile: Profile, *, cert_pem: str, key_pem: str) ->
     profile.client_cert_path = str(cert_path)
     profile.client_key_path = str(key_path)
 
-    all_profiles = _read_raw()
+    all_profiles = _read_raw(_credentials_path())
     all_profiles[name] = asdict(profile)
-    _write_raw(all_profiles)
+    _write_raw(_credentials_path(), all_profiles)
 
 
 def load_profile(name: str = DEFAULT_PROFILE) -> Profile:
-    all_profiles = _read_raw()
+    all_profiles = _read_raw(_credentials_path())
     data = all_profiles.get(name)
     if data is None:
         raise CredentialsNotFoundError(
@@ -103,14 +120,53 @@ def load_profile(name: str = DEFAULT_PROFILE) -> Profile:
     return Profile(**data)
 
 
-def _read_raw() -> dict:
-    path = _credentials_path()
+def save_pending_signup(name: str, *, base_url: str, slug: str, key_pem: str) -> PendingSignup:
+    """Guarda la clave privada de un `request-invite --con-csr` mientras se espera el
+    certificado real -- separado de `credentials.json`/`save_profile` a propósito: no
+    hay todavía ningún perfil utilizable, solo una clave huérfana esperando su par."""
+    directory = config_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    _chmod_best_effort(directory, 0o700)
+
+    key_path = directory / f"{name}.pending.key"
+    key_path.write_text(key_pem)
+    _chmod_best_effort(key_path, 0o600)
+
+    pending = PendingSignup(base_url=base_url, slug=slug, key_path=str(key_path))
+    all_pending = _read_raw(_pending_signups_path())
+    all_pending[name] = asdict(pending)
+    _write_raw(_pending_signups_path(), all_pending)
+    return pending
+
+
+def load_pending_signup(name: str = DEFAULT_PROFILE) -> PendingSignup | None:
+    """`None` si no hay ninguna solicitud con CSR pendiente para ese perfil -- a
+    diferencia de `load_profile`, no es un error propio de este módulo: `completar-signup`
+    (ver cli.py) es quien decide qué mensaje mostrar según el caso."""
+    all_pending = _read_raw(_pending_signups_path())
+    data = all_pending.get(name)
+    return PendingSignup(**data) if data is not None else None
+
+
+def discard_pending_signup(name: str) -> None:
+    """Borra el registro Y el archivo de clave -- llamalo después de completar el
+    signup con éxito (`save_profile` ya copió esa misma clave al perfil final), para no
+    dejar una clave privada huérfana en disco indefinidamente. No-op si no había
+    ninguno guardado con ese nombre."""
+    all_pending = _read_raw(_pending_signups_path())
+    data = all_pending.pop(name, None)
+    if data is None:
+        return
+    _write_raw(_pending_signups_path(), all_pending)
+    Path(data["key_path"]).unlink(missing_ok=True)
+
+
+def _read_raw(path: Path) -> dict:
     if not path.exists():
         return {}
     return json.loads(path.read_text())
 
 
-def _write_raw(all_profiles: dict) -> None:
-    path = _credentials_path()
-    path.write_text(json.dumps(all_profiles, indent=2, sort_keys=True) + "\n")
+def _write_raw(path: Path, data: dict) -> None:
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
     _chmod_best_effort(path, 0o600)

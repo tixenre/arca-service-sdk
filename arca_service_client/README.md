@@ -41,11 +41,26 @@ interactiva (o pasalos con `--name`/`--slug`/`--contact-email`/`--message`).
 Público, sin auth, sin nada criptográfico — a diferencia de `login`, esto no
 genera ningún par de claves ni guarda nada en disco: solo le avisa a quien
 administra arca-service que alguien quiere entrar. **No hay respuesta
-automática** — un operador la revisa a mano y te entrega el invite real por
-un canal seguro (nunca por acá, y no hay forma de saber cuánto tarda). Este
-paso se documenta acá y no solo del lado de arca-service porque ese repo es
+automática** — un operador la revisa a mano y te entrega el resultado por un
+canal seguro (nunca por acá, y no hay forma de saber cuánto tarda). Este paso
+se documenta acá y no solo del lado de arca-service porque ese repo es
 privado — `arca-service-sdk` es lo único público que un integrador nuevo
 puede leer sin acceso a nada interno.
+
+Con `--con-csr` te ahorrás un paso: el CLI genera tu par RSA + CSR ACÁ (la
+clave privada nunca sale de tu máquina, igual que `login`) y manda el CSR
+junto con la solicitud. Si se aprueba, te entregan la Plataforma ya
+aprovisionada (API key + certificado) en vez de un invite code — cerrá el
+trámite con `completar-signup` cuando te llegue:
+
+```
+arca-service-client request-invite --base-url https://arca.tudominio.com --con-csr
+# ... esperás a que te entreguen el certificado por un canal seguro ...
+arca-service-client completar-signup --cert certificado.crt --api-key <api-key>
+```
+
+Sin `--con-csr`, `request-invite` sigue funcionando exactamente igual que
+antes — es opcional, no un requisito nuevo.
 
 ### Self-serve (recomendado): `arca-service-client login`
 

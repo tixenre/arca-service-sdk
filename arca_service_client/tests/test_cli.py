@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
@@ -17,7 +18,9 @@ from arca_service_client.local_config import (
     DEFAULT_PROFILE,
     CredentialsNotFoundError,
     Profile,
+    load_pending_signup,
     load_profile,
+    save_pending_signup,
     save_profile,
 )
 
@@ -205,6 +208,119 @@ def test_request_invite_201_con_body_no_json_no_revienta(httpx_mock, capsys):
 
     assert exit_code == 0
     assert "id=?" in capsys.readouterr().out
+
+
+def test_request_invite_con_csr_manda_el_csr_pem_y_guarda_la_clave_pendiente(
+    isolated_config_dir, httpx_mock
+):
+    capturado = {}
+
+    def _responder(request):
+        capturado["body"] = json.loads(request.content)
+        return httpx.Response(
+            201, json={"id": "req-123", "name": "Acme", "slug": "acme", "mensaje": "..."}
+        )
+
+    httpx_mock.add_callback(_responder, method="POST", url=_SIGNUP_REQUESTS_URL)
+
+    argv = [
+        "request-invite",
+        "--base-url",
+        _BASE_URL,
+        "--name",
+        "Acme",
+        "--slug",
+        "acme",
+        "--contact-email",
+        "dev@acme.example",
+        "--con-csr",
+    ]
+    exit_code = cli.main(argv)
+
+    assert exit_code == 0
+    assert "BEGIN CERTIFICATE REQUEST" in capturado["body"]["csr_pem"]
+
+    pending = load_pending_signup("default")
+    assert pending is not None
+    assert pending.slug == "acme"
+    assert pending.base_url == _BASE_URL
+    with open(pending.key_path) as f:
+        assert "BEGIN PRIVATE KEY" in f.read()
+
+
+def test_request_invite_sin_con_csr_no_guarda_nada_pendiente(isolated_config_dir, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=_SIGNUP_REQUESTS_URL,
+        status_code=201,
+        json={"id": "req-123", "name": "Acme", "slug": "acme", "mensaje": "..."},
+    )
+
+    cli.main(_request_invite_args())
+
+    assert load_pending_signup("default") is None
+
+
+def test_completar_signup_feliz(isolated_config_dir, client_cert_pem, tmp_path):
+    cert_pem, key_pem = client_cert_pem
+    save_pending_signup("default", base_url=_BASE_URL, slug="acme", key_pem=key_pem)
+
+    cert_path = tmp_path / "entregado.crt"
+    cert_path.write_text(cert_pem)
+
+    exit_code = cli.main(
+        ["completar-signup", "--cert", str(cert_path), "--api-key", "arca_test-key"]
+    )
+
+    assert exit_code == 0
+    profile = load_profile("default")
+    assert profile.api_key == "arca_test-key"
+    assert profile.plataforma_slug == "acme"
+    assert profile.base_url == _BASE_URL
+    with open(profile.client_cert_path) as f:
+        assert f.read() == cert_pem
+    assert load_pending_signup("default") is None
+
+
+def test_completar_signup_sin_pending_falla_claro(isolated_config_dir, tmp_path, capsys):
+    cert_path = tmp_path / "entregado.crt"
+    cert_path.write_text("no importa -- ni se llega a leer")
+
+    exit_code = cli.main(["completar-signup", "--cert", str(cert_path), "--api-key", "x"])
+
+    assert exit_code == 1
+    assert "request-invite --con-csr" in capsys.readouterr().err
+
+
+def test_completar_signup_cert_no_corresponde_a_la_clave_guardada(
+    isolated_config_dir, client_cert_pem, client_cert_files, capsys
+):
+    _cert_correcto, key_pem = client_cert_pem
+    save_pending_signup("default", base_url=_BASE_URL, slug="acme", key_pem=key_pem)
+
+    cert_ajeno_path, _key_ajena_path = client_cert_files  # par DISTINTO, no corresponde
+
+    exit_code = cli.main(["completar-signup", "--cert", cert_ajeno_path, "--api-key", "x"])
+
+    assert exit_code == 1
+    assert "no corresponde" in capsys.readouterr().err
+    # No consumió el pending -- se puede reintentar con el certificado correcto.
+    assert load_pending_signup("default") is not None
+
+
+def test_completar_signup_cert_inexistente_falla_claro_sin_pisar_nada(
+    isolated_config_dir, client_cert_pem, tmp_path, capsys
+):
+    _cert_pem, key_pem = client_cert_pem
+    save_pending_signup("default", base_url=_BASE_URL, slug="acme", key_pem=key_pem)
+
+    exit_code = cli.main(
+        ["completar-signup", "--cert", str(tmp_path / "no-existe.crt"), "--api-key", "x"]
+    )
+
+    assert exit_code == 1
+    assert "no-existe.crt" in capsys.readouterr().err
+    assert load_pending_signup("default") is not None
 
 
 def test_login_feliz_guarda_el_perfil(isolated_config_dir, client_cert_pem, httpx_mock):

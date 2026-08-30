@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
+import ssl
 import sys
 
 import httpx
@@ -56,7 +57,10 @@ from .local_config import (
     CredentialsNotFoundError,
     Profile,
     config_dir,
+    discard_pending_signup,
+    load_pending_signup,
     load_profile,
+    save_pending_signup,
     save_profile,
 )
 
@@ -67,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "request-invite":
         return _request_invite(args)
+    if args.command == "completar-signup":
+        return _completar_signup(args)
     if args.command == "login":
         return _login(args)
     if args.command == "import":
@@ -96,6 +102,30 @@ def _build_parser() -> argparse.ArgumentParser:
     request_invite.add_argument(
         "--message", default="", help="Contexto opcional para quien revisa (para qué lo vas a usar)"
     )
+    request_invite.add_argument(
+        "--con-csr",
+        action="store_true",
+        help="Generar CSR+clave ahora y mandarlo con la solicitud -- si se aprueba, "
+        "arca-service te aprovisiona la Plataforma completa (API key + certificado) en "
+        "vez de solo un invite code. Completá el perfil después con `completar-signup`",
+    )
+    request_invite.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE,
+        help="Sólo con --con-csr: dónde guardar la clave hasta que llegue el certificado",
+    )
+
+    completar_signup = sub.add_parser(
+        "completar-signup",
+        help="Ya te llegó el certificado de un `request-invite --con-csr` -- armá el perfil",
+    )
+    completar_signup.add_argument(
+        "--cert", required=True, help="Ruta al certificado que te entregó arca-service"
+    )
+    completar_signup.add_argument(
+        "--api-key", required=True, help="API key que te entregó arca-service"
+    )
+    completar_signup.add_argument("--profile", default=DEFAULT_PROFILE)
 
     login = sub.add_parser(
         "login",
@@ -150,10 +180,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _request_invite(args: argparse.Namespace) -> int:
     """`POST /api/v1/signup-requests` -- a diferencia de `_login`, sin invite, sin
-    Authorization, y sin nada que guardar en disco: esto solo dispara una fila
-    `pending` del lado de arca-service. `.get()` en vez de `data["..."]` al leer la
-    respuesta -- no hay ningún secreto acá que perder por degradar en vez de reventar
-    si el body viniera incompleto (a diferencia de `_login`, ver su propio manejo)."""
+    Authorization. `.get()` en vez de `data["..."]` al leer la respuesta -- no hay
+    ningún secreto acá que perder por degradar en vez de reventar si el body viniera
+    incompleto (a diferencia de `_login`, ver su propio manejo).
+
+    `--con-csr` genera el par CSR+clave ACÁ (mismo mecanismo que `_login`) y manda el
+    CSR con la solicitud -- si arca-service la aprueba, aprovisiona la Plataforma
+    completa de una en vez de solo un invite code. La clave privada nunca viaja: queda
+    guardada localmente (`save_pending_signup`) hasta que llegue el certificado real, y
+    `completar-signup` la empareja con ese certificado para terminar el perfil."""
     base_url = args.base_url or os.environ.get("ARCA_SERVICE_BASE_URL")
     if not base_url:
         print(
@@ -166,16 +201,22 @@ def _request_invite(args: argparse.Namespace) -> int:
     slug = args.slug or input('Slug, identificador estable (ej. "mi-plataforma"): ').strip()
     contact_email = args.contact_email or input("Email de contacto: ").strip()
 
+    payload = {
+        "name": name,
+        "slug": slug,
+        "contact_email": contact_email,
+        "message": args.message,
+    }
+    key_pem = None
+    if args.con_csr:
+        csr_pem, key_pem = _generar_csr_y_clave(f"{slug}.arca-service")
+        payload["csr_pem"] = csr_pem
+
     try:
         resp = httpx.post(
             f"{base_url.rstrip('/')}/api/v1/signup-requests",
             headers={"Accept": "application/json"},
-            json={
-                "name": name,
-                "slug": slug,
-                "contact_email": contact_email,
-                "message": args.message,
-            },
+            json=payload,
             timeout=30.0,
         )
     except httpx.HTTPError as exc:
@@ -198,6 +239,15 @@ def _request_invite(args: argparse.Namespace) -> int:
             "Un operador la va a revisar -- avisá si no tenés noticias en unos días.",
         )
     )
+
+    if key_pem is not None:
+        save_pending_signup(args.profile, base_url=base_url, slug=slug, key_pem=key_pem)
+        print(
+            f"Tu clave privada quedó guardada localmente. Cuando arca-service te "
+            f"entregue el certificado, corré:\n"
+            f"  arca-service-client completar-signup --cert <archivo.crt> "
+            f"--api-key <api-key> --profile {args.profile!r}"
+        )
     return 0
 
 
@@ -274,6 +324,55 @@ def _login(args: argparse.Namespace) -> int:
         return 1
 
     print(f"Listo -- Plataforma {data['slug']!r} guardada como perfil {args.profile!r}.")
+    print(f"Configuración en: {config_dir()}")
+    print("ArcaServiceClient()/AsyncArcaServiceClient() ya la usan sin argumentos.")
+    return 0
+
+
+def _completar_signup(args: argparse.Namespace) -> int:
+    """Cierra el flujo de `request-invite --con-csr`: la clave privada ya está en disco
+    desde ese llamado (nunca viajó a ningún lado, ver `save_pending_signup`), esto solo
+    empareja el certificado real que te entregó arca-service por canal seguro y arma el
+    perfil final -- mismo shape que deja `_login`, sin generar ningún CSR nuevo."""
+    pending = load_pending_signup(args.profile)
+    if pending is None:
+        print(
+            f"No hay ninguna solicitud con --con-csr pendiente para el perfil "
+            f"{args.profile!r} -- corré `arca-service-client request-invite --con-csr` "
+            "primero.",
+            file=sys.stderr,
+        )
+        return 1
+
+    cert_pem = _leer_archivo(args.cert, "el certificado")
+    if cert_pem is None:
+        return 1
+    key_pem = _leer_archivo(pending.key_path, "la clave privada guardada")
+    if key_pem is None:
+        return 1
+
+    # Confirma que el certificado es de verdad el par de ESTA clave antes de guardar
+    # nada -- mismo motivo que el chequeo equivalente en `_import_credencial`: un
+    # cert/clave que no corresponden revientan recién al abrir el `ssl_context` de
+    # `ArcaServiceClient`, mucho más lejos de este error y sin este mensaje.
+    try:
+        ssl.create_default_context().load_cert_chain(certfile=args.cert, keyfile=pending.key_path)
+    except ssl.SSLError as exc:
+        print(f"El certificado no corresponde a la clave guardada: {exc}", file=sys.stderr)
+        return 1
+
+    profile = Profile(
+        base_url=pending.base_url,
+        api_key=args.api_key,
+        client_cert_path="",
+        client_key_path="",
+        plataforma_slug=pending.slug,
+        cert_not_after=_cert_not_after(cert_pem),
+    )
+    save_profile(args.profile, profile, cert_pem=cert_pem, key_pem=key_pem)
+    discard_pending_signup(args.profile)
+
+    print(f"Listo -- Plataforma {pending.slug!r} guardada como perfil {args.profile!r}.")
     print(f"Configuración en: {config_dir()}")
     print("ArcaServiceClient()/AsyncArcaServiceClient() ya la usan sin argumentos.")
     return 0
