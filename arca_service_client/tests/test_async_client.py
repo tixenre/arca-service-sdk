@@ -562,7 +562,7 @@ async def test_listar_comprobantes_manda_los_filtros_como_query_params(client, h
         url=(
             f"{_API}/clientes/cliente-1/comprobantes"
             "?estado=issued&tipo=factura&creado_desde=2026-08-01&creado_hasta=2026-08-31"
-            "&limit=10&offset=20"
+            "&receptor_cuit=20301234563&limit=10&offset=20"
         ),
         json={"items": [], "count": 0},
     )
@@ -572,6 +572,7 @@ async def test_listar_comprobantes_manda_los_filtros_como_query_params(client, h
         tipo="factura",
         creado_desde=date(2026, 8, 1),
         creado_hasta=date(2026, 8, 31),
+        receptor_cuit="20301234563",
         limit=10,
         offset=20,
     )

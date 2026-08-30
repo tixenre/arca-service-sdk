@@ -264,8 +264,8 @@ el código de rechazo de AFIP tal cual, sin masticar) — mismo objeto que
 
 `listar_comprobantes(external_ref)` trae todo lo que este Cliente tiene
 emitido/pendiente/en error, más nuevo primero — mismo shape de `EmisionResult` por
-ítem. Filtrable por `estado`/`tipo`/`creado_desde`/`creado_hasta`, paginado con
-`limit` (50 default, 200 máximo)/`offset`:
+ítem. Filtrable por `estado`/`tipo`/`creado_desde`/`creado_hasta`/`receptor_cuit`,
+paginado con `limit` (50 default, 200 máximo)/`offset`:
 
 ```python
 pagina = client.listar_comprobantes(
@@ -274,6 +274,11 @@ pagina = client.listar_comprobantes(
 pagina.count           # total que matchea el filtro, no `len(pagina.items)`
 pagina.items[0].estado
 ```
+
+`receptor_cuit` (con guiones o pelado, sin exigir dígito verificador) sirve para
+armar "tus facturas" del lado de tu propio producto -- alcanza también filas
+`pending`/`error`, no solo `issued`. Solo encuentra lo emitido con CUIT: un receptor
+por DNI o consumidor final nunca aparece filtrando así.
 
 `creado_desde`/`creado_hasta` filtran por cuándo se PIDIÓ la emisión, no por la fecha
 fiscal del comprobante. Sin resultados es una lista vacía, nunca un 404.

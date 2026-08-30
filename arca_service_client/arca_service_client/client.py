@@ -478,19 +478,24 @@ class ArcaServiceClient:
         tipo: str | None = None,
         creado_desde: date | None = None,
         creado_hasta: date | None = None,
+        receptor_cuit: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> ListaComprobantesResult:
         """Todos los que este Cliente tiene emitidos/pendientes/en error, más nuevo
-        primero -- filtrable por `estado` (`"pending"`/`"issued"`/`"error"`) y `tipo`
-        (`"factura"`/`"nota_credito"`/`"nota_debito"`). `creado_desde`/`creado_hasta`
-        filtran por cuándo se PIDIÓ la emisión, no por la fecha fiscal del comprobante.
-        Sin resultados es una lista vacía, nunca un 404."""
+        primero -- filtrable por `estado` (`"pending"`/`"issued"`/`"error"`), `tipo`
+        (`"factura"`/`"nota_credito"`/`"nota_debito"`) y `receptor_cuit` (con guiones o
+        pelado, sin exigir dígito verificador -- solo encuentra lo emitido con CUIT, un
+        receptor por DNI o consumidor final nunca aparece filtrando así).
+        `creado_desde`/`creado_hasta` filtran por cuándo se PIDIÓ la emisión, no por la
+        fecha fiscal del comprobante. Sin resultados es una lista vacía, nunca un 404."""
         params: dict = {"limit": limit, "offset": offset}
         if estado is not None:
             params["estado"] = estado
         if tipo is not None:
             params["tipo"] = tipo
+        if receptor_cuit is not None:
+            params["receptor_cuit"] = receptor_cuit
         if creado_desde is not None:
             params["creado_desde"] = creado_desde.isoformat()
         if creado_hasta is not None:
