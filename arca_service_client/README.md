@@ -73,6 +73,15 @@ PEM a mano.
 arca-service-client login --base-url https://arca.tudominio.com --invite <código>
 ```
 
+**Sin instalar nada:** `https://arca.tudominio.com/signup?invite=<código>` hace lo mismo
+adentro del navegador — genera el par RSA y el CSR con WebCrypto, nunca los manda a
+ningún lado hasta tenerlos listos, y descarga la clave privada ANTES de llamar a la API
+(que nunca la ve, ni un instante). Mismo resultado final (Plataforma + API key +
+certificado), sin `pip install` ni Python de por medio — útil si quien integra no tiene
+Python a mano, o no quiere instalar este paquete solo para el alta inicial. Sin
+`?invite=` en la URL, la misma página cubre el camino de `request-invite --con-csr` de
+arriba: la solicitud queda pendiente de revisión igual que si la mandaras por acá.
+
 El invite code te lo entrega quien administra arca-service por un canal seguro — es de
 un solo uso y vence, así que pedilo con `request-invite` de arriba si todavía no tenés
 uno vigente. `login` genera tu par RSA + CSR **en tu propia máquina** (la clave privada
