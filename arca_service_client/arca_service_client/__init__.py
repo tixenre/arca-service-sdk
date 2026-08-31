@@ -3,7 +3,7 @@
     from arca_service_client import ArcaServiceClient, ComprobanteInput, ItemFactura, Receptor
 
     client = ArcaServiceClient(
-        base_url="https://arca.tudominio.com",
+        base_url="https://arca.mancino.dev",
         client_cert_path="/etc/mi-plataforma/arca-client.crt",
         client_key_path="/etc/mi-plataforma/arca-client.key",
         api_key="...",

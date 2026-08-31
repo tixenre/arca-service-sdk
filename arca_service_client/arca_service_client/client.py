@@ -73,7 +73,7 @@ LAYOUT_DEFAULT = "oficial"  # mismo default que usa el servidor si no se manda `
 @dataclass
 class ArcaServiceClient:
     """`base_url`: raíz del servicio SIN el prefijo de versión (ej.
-    `"https://arca.tudominio.com"`) — este cliente arma `{base_url}/api/v1` solo, para
+    `"https://arca.mancino.dev"`) — este cliente arma `{base_url}/api/v1` solo, para
     que un futuro `/api/v2` de arca-service sea un cambio de ESTE paquete, no de cada
     integrador.
 

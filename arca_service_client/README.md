@@ -33,7 +33,7 @@ Si nadie te pasó un invite code todavía, no hace falta que se lo pidas por
 otro canal (Slack, mail) — este mismo CLI lo dispara:
 
 ```
-arca-service-client request-invite --base-url https://arca.tudominio.com
+arca-service-client request-invite --base-url https://arca.mancino.dev
 ```
 
 Sin flags te va a preguntar nombre/slug/email de contacto de forma
@@ -54,7 +54,7 @@ aprovisionada (API key + certificado) en vez de un invite code — cerrá el
 trámite con `completar-signup` cuando te llegue:
 
 ```
-arca-service-client request-invite --base-url https://arca.tudominio.com --con-csr
+arca-service-client request-invite --base-url https://arca.mancino.dev --con-csr
 # ... esperás a que te entreguen el certificado por un canal seguro ...
 arca-service-client completar-signup --cert certificado.crt --api-key <api-key>
 ```
@@ -70,10 +70,10 @@ las credenciales quedan guardadas solas, tu código nunca vuelve a tocar un
 PEM a mano.
 
 ```
-arca-service-client login --base-url https://arca.tudominio.com --invite <código>
+arca-service-client login --base-url https://arca.mancino.dev --invite <código>
 ```
 
-**Sin instalar nada:** `https://arca.tudominio.com/signup?invite=<código>` hace lo mismo
+**Sin instalar nada:** `https://arca.mancino.dev/signup?invite=<código>` hace lo mismo
 adentro del navegador — genera el par RSA y el CSR con WebCrypto, nunca los manda a
 ningún lado hasta tenerlos listos, y descarga la clave privada ANTES de llamar a la API
 (que nunca la ve, ni un instante). Mismo resultado final (Plataforma + API key +
@@ -112,7 +112,7 @@ con este camino los recibís vos a mano y los pasás explícitos:
 
 ```python
 client = ArcaServiceClient(
-    base_url="https://arca.tudominio.com",
+    base_url="https://arca.mancino.dev",
     client_cert_path="/etc/mi-plataforma/arca-client.crt",
     client_key_path="/etc/mi-plataforma/arca-client.key",
     api_key="...",
@@ -136,7 +136,7 @@ from arca_service_client import (
 )
 
 client = ArcaServiceClient(
-    base_url="https://arca.tudominio.com",
+    base_url="https://arca.mancino.dev",
     client_cert_path="/etc/mi-plataforma/arca-client.crt",
     client_key_path="/etc/mi-plataforma/arca-client.key",
     api_key="...",
@@ -189,7 +189,7 @@ from arca_service_client import AsyncArcaServiceClient
 
 async def facturar(cuit: str, comprobante: ComprobanteInput):
     async with AsyncArcaServiceClient(
-        base_url="https://arca.tudominio.com",
+        base_url="https://arca.mancino.dev",
         client_cert_path="/etc/mi-plataforma/arca-client.crt",
         client_key_path="/etc/mi-plataforma/arca-client.key",
         api_key="...",
@@ -359,7 +359,7 @@ comparte fuera de tu propia sesión autenticada.
 
 ```python
 resultado = client.crear_embed_token("cliente-1", "factura-8231")
-resultado.embed_url    # "https://arca.tudominio.com/embed/comprobantes/<token>/comprobante.html"
+resultado.embed_url    # "https://arca.mancino.dev/embed/comprobantes/<token>/comprobante.html"
 resultado.expires_at   # datetime UTC -- 30 min desde la emisión del token, por default
 ```
 
@@ -484,7 +484,7 @@ certificados AFIP y necesita elegir cuál usar).
 
 ```python
 resultado = client.crear_conexion_afip_embed_token("cliente-1")
-resultado.embed_url    # "https://arca.tudominio.com/embed/conexion-afip/<token>"
+resultado.embed_url    # "https://arca.mancino.dev/embed/conexion-afip/<token>"
 resultado.expires_at   # datetime UTC -- 30 min desde la emisión del token, por default
 ```
 

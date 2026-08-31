@@ -94,7 +94,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Sin invite todavía -- pedí acceso, un operador lo revisa y te contacta",
     )
     request_invite.add_argument(
-        "--base-url", help="Ej. https://arca.tudominio.com (o env ARCA_SERVICE_BASE_URL)"
+        "--base-url", help="Ej. https://arca.mancino.dev (o env ARCA_SERVICE_BASE_URL)"
     )
     request_invite.add_argument("--name", help='Nombre de tu Plataforma (ej. "Mi Plataforma")')
     request_invite.add_argument("--slug", help='Identificador estable (ej. "mi-plataforma")')
@@ -132,7 +132,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Signup self-serve -- crea tu Plataforma y guarda sus credenciales",
     )
     login.add_argument(
-        "--base-url", help="Ej. https://arca.tudominio.com (o env ARCA_SERVICE_BASE_URL)"
+        "--base-url", help="Ej. https://arca.mancino.dev (o env ARCA_SERVICE_BASE_URL)"
     )
     login.add_argument("--invite", required=True, help="Invite code, entregado por un canal seguro")
     login.add_argument("--name", help='Nombre de tu Plataforma (ej. "Mi Plataforma")')
