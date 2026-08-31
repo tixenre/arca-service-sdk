@@ -44,6 +44,8 @@ from .exceptions import (
     ArcaServiceError,
     BonificadoLimiteError,
     ConfiguracionError,
+    CredencialYaActivaError,
+    CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
     NotaExcedeComprobanteError,
@@ -96,7 +98,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.9"
+__version__ = "0.0.10"
 
 __all__ = [
     "__version__",
@@ -162,7 +164,9 @@ __all__ = [
     "AfipUnavailableError",
     "BonificadoLimiteError",
     "ConfiguracionError",
+    "CredencialYaActivaError",
     "CredentialsNotFoundError",
+    "CsrYaExisteError",
     "IdempotencyConflictError",
     "InternoError",
     "NotaExcedeComprobanteError",

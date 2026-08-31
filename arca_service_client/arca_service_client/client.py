@@ -36,6 +36,8 @@ from .exceptions import (
     ArcaServiceError,
     BonificadoLimiteError,
     ConfiguracionError,
+    CredencialYaActivaError,
+    CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
     NotaExcedeComprobanteError,
@@ -182,7 +184,7 @@ class ArcaServiceClient:
         resp = self._http.put(
             f"/clientes/{external_ref}/bonificado", json={"bonificado": bonificado}
         )
-        _raise_for_status(resp, conflict_error=BonificadoLimiteError)
+        _raise_for_status(resp)
         return BonificadoResult._from_json(resp.json())
 
     def set_facturacion(
@@ -670,6 +672,9 @@ class ArcaServiceClient:
 _EXCEPCION_POR_CODE: dict[str, type[ArcaServiceError]] = {
     "no_encontrado": NotFoundError,
     "idempotency_key_reusada": IdempotencyConflictError,
+    "csr_ya_existe": CsrYaExisteError,
+    "credencial_ya_activa": CredencialYaActivaError,
+    "limite_bonificados_alcanzado": BonificadoLimiteError,
     "rate_limit": RateLimitedError,
     "punto_venta_no_habilitado": PuntoVentaNoHabilitadoError,
     "nota_excede_comprobante": NotaExcedeComprobanteError,
@@ -727,40 +732,29 @@ def _parse_error_envelope(resp: httpx.Response) -> _ErrorEnvelope:
         return _ErrorEnvelope(type="interno", code="", message=resp.text, param=None, afip=None)
 
 
-def _raise_for_status(
-    resp: httpx.Response, *, conflict_error: type[ArcaServiceError] = IdempotencyConflictError
-) -> None:
+def _raise_for_status(resp: httpx.Response) -> None:
     """Traduce un `resp` con status >= 400 a `arca_service_client.exceptions`, ramificando
-    por `error.code`/`error.type` -- nunca por `status_code` (dos `code` bien distintos
-    pueden compartir status, ej. `credencial_rechazada` y `punto_venta_no_habilitado` son
-    los dos 422; ver MIGRACION.md punto 1). Función de MÓDULO (no un método) a propósito
-    -- no usa `self` para nada, y `AsyncArcaServiceClient` (`async_client.py`) la reusa
-    tal cual: el mapeo es IDÉNTICO entre el cliente sync y el async, la única diferencia
-    real entre los dos es el transporte (`httpx.Client` vs `httpx.AsyncClient`), no esto.
+    por `error.code`/`error.type` -- nunca por `status_code` (varios `code` bien distintos
+    pueden compartir status, ej. `idempotency_key_reusada`, `csr_ya_existe` y
+    `limite_bonificados_alcanzado` son los tres 409; ver MIGRACION.md punto 1). Función de
+    MÓDULO (no un método) a propósito -- no usa `self` para nada, y
+    `AsyncArcaServiceClient` (`async_client.py`) la reusa tal cual: el mapeo es IDÉNTICO
+    entre el cliente sync y el async, la única diferencia real entre los dos es el
+    transporte (`httpx.Client` vs `httpx.AsyncClient`), no esto.
 
     Fallas de TRANSPORTE (timeout, conexión rechazada, DNS, TLS) NO se envuelven acá --
     se dejan propagar como las excepciones nativas de httpx
     (`httpx.TimeoutException`/`httpx.ConnectError`/etc.) — mezclar "el servidor
     respondió que no" con "ni pudimos preguntarle" perdería justo la distinción que hace
-    útil tener excepciones tipadas.
-
-    `conflict_error`: qué tipo levantar en un 409 — por default `IdempotencyConflictError`
-    (el caso general, casi todo el resto de la API), pero `set_bonificado` pasa
-    `BonificadoLimiteError` porque SU 409 es un conflicto de negocio totalmente distinto
-    (circuit-breaker, no idempotencia). Elegido por SITIO DE LLAMADA y no por `code` --
-    hoy arca-service todavía no distingue los dos 409 en el sobre (los dos traen
-    `code: "idempotency_key_reusada"`), así que el `code` no alcanza para separarlos."""
+    útil tener excepciones tipadas."""
     if resp.status_code < 400:
         return
 
     envelope = _parse_error_envelope(resp)
 
-    if resp.status_code == 409:
-        excepcion = conflict_error
-    else:
-        excepcion = _EXCEPCION_POR_CODE.get(envelope.code) or _EXCEPCION_POR_TYPE.get(
-            envelope.type, InternoError
-        )
+    excepcion = _EXCEPCION_POR_CODE.get(envelope.code) or _EXCEPCION_POR_TYPE.get(
+        envelope.type, InternoError
+    )
 
     kwargs: dict = dict(
         type=envelope.type,

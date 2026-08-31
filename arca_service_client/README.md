@@ -219,7 +219,9 @@ seguridad configurado del lado de arca-service (`BonificadoLimiteError`, 409, ve
 configura, una sola vez por Cliente, lo único del emisor que el padrón de AFIP no
 tiene y que se usa al renderizar sus comprobantes (`.html`/`.pdf`/`.imagen`). Razón
 social y domicilio no se aceptan acá: los trae el padrón, no hay dos fuentes para el
-mismo dato. Los dos parámetros son opcionales — pasá solo el que quieras actualizar.
+mismo dato. Los dos parámetros son opcionales — pasá solo el que quieras actualizar; el
+`FacturacionResult` que vuelve trae en `None` cualquiera de los dos que nunca se haya
+configurado (no en `""`).
 
 ## Emisión: siempre asincrónica
 
@@ -413,11 +415,14 @@ para no obligarte a mirar `.code` a mano en los casos más comunes:
 | `AfipRechazoError` | `afip` | 422 | AFIP rechazó el comprobante — `.afip` trae los códigos de rechazo sin masticar (`AfipErrorDetail.codigo`/`.mensaje`), no reintentable |
 | `AfipUnavailableError` | `afip` | 502 | AFIP no contestó o contestó en un formato inesperado — transitorio, reintentable con backoff |
 | `ServicioNoDisponibleError` | `interno` | 503 | arca-service no puede completar ESTE request puntual (ej. el renderizador de PDF/imagen está caído) — **no significa que la emisión haya fallado**, el CAE sigue ahí |
-| `BonificadoLimiteError` | `request` | 409 | `set_bonificado` chocó contra el límite de seguridad de tu Plataforma — pedile a arca-service que lo suba, no es un error tuyo ni del Cliente |
+| `BonificadoLimiteError` | `configuracion` | 409 | `set_bonificado` chocó contra el límite de seguridad de tu Plataforma — pedile a arca-service que lo suba, no es un error tuyo ni del Cliente |
+| `CsrYaExisteError` | `request` | 409 | `generar_csr` chocó con un CSR pendiente ya generado antes para este Cliente — pasá `regenerar=True` para descartarlo y arrancar de cero |
+| `CredencialYaActivaError` | `request` | 409 | `generar_csr` chocó con una credencial ya activa para este Cliente — pasá `regenerar=True` para reemplazarla |
 
-`IdempotencyConflictError` y `BonificadoLimiteError` comparten status code (409) pero
-NO significado — son dos conflictos de negocio sin relación, cada uno con su propio
-subtipo a propósito para que discriminar por `except` no los confunda.
+`IdempotencyConflictError`, `BonificadoLimiteError`, `CsrYaExisteError` y
+`CredencialYaActivaError` comparten status code (409) pero NO significado — cuatro
+conflictos de negocio sin relación entre sí, cada uno con su propio `code` (y por lo
+tanto su propio subtipo) para que discriminar por `except` no los confunda.
 
 Fallas de TRANSPORTE (timeout, DNS, conexión rechazada) NO se envuelven — se dejan
 propagar como excepciones nativas de `httpx` (`httpx.TimeoutException`,

@@ -105,20 +105,30 @@ class IdempotencyConflictError(RequestError):
     Elegí una key nueva si es una emisión genuinamente distinta; si es un reintento de la
     MISMA emisión con el MISMO payload, esto no debería pasar -- construila
     determinística a partir de algo estable de tu propio dominio (ej. el id de la orden
-    o factura en tu sistema), nunca de un valor random generado en cada intento.
-
-    NO es el tipo que levanta `set_bonificado` en su propio 409 — ver
-    `BonificadoLimiteError`, un conflicto de negocio totalmente distinto que comparte el
-    status code (409) pero no el significado."""
+    o factura en tu sistema), nunca de un valor random generado en cada intento."""
 
 
-class BonificadoLimiteError(RequestError):
+class BonificadoLimiteError(ConfiguracionError):
     """409 — `ArcaServiceClient.set_bonificado(external_ref, True)` chocó contra el
     circuit-breaker de seguridad de tu Plataforma (0 por default -- fail-closed hasta
     que un operador de arca-service negocie un límite real y lo suba a mano). NO es un
     error tuyo ni del Cliente: pedile a arca-service que revise/suba el límite. Desactivar
     (`set_bonificado(external_ref, False)`) nunca choca contra esto -- solo activar un
     vínculo nuevo cuenta contra el límite."""
+
+
+class CsrYaExisteError(RequestError):
+    """409 — `ArcaServiceClient.generar_csr(external_ref)` chocó con un CSR que ya se
+    había generado antes para este Cliente y todavía no se completó con un certificado
+    (`completar_credencial`). Pasá `regenerar=True` si el objetivo es descartar ese CSR
+    pendiente y arrancar de cero con uno nuevo."""
+
+
+class CredencialYaActivaError(RequestError):
+    """409 — `ArcaServiceClient.generar_csr(external_ref)` chocó con una credencial que
+    ya está activa para este Cliente. Pasá `regenerar=True` si el objetivo es
+    reemplazarla por una nueva (la activa deja de servir en cuanto se complete la
+    nueva)."""
 
 
 class RateLimitedError(RequestError):

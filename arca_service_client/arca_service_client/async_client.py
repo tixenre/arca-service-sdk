@@ -28,7 +28,6 @@ import httpx as _httpx
 
 from .client import _TIMEOUT_SECONDS_DEFAULT, LAYOUT_DEFAULT, _raise_for_status
 from .crypto import seal
-from .exceptions import BonificadoLimiteError
 from .local_config import DEFAULT_PROFILE, load_profile
 from .models import (
     BonificadoResult,
@@ -130,7 +129,7 @@ class AsyncArcaServiceClient:
         resp = await self._http.put(
             f"/clientes/{external_ref}/bonificado", json={"bonificado": bonificado}
         )
-        _raise_for_status(resp, conflict_error=BonificadoLimiteError)
+        _raise_for_status(resp)
         return BonificadoResult._from_json(resp.json())
 
     async def set_facturacion(

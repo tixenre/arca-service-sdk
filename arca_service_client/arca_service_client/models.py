@@ -349,10 +349,14 @@ class BonificadoResult:
 class FacturacionResult:
     """Respuesta de `ArcaServiceClient.set_facturacion` — el `iibb`/`nombre_comercial` YA
     guardado (no un eco ciego de lo que mandaste). Razón social y domicilio NO están
-    acá: los trae el padrón de AFIP, no se configuran por este medio."""
+    acá: los trae el padrón de AFIP, no se configuran por este medio.
 
-    iibb: str
-    nombre_comercial: str
+    Cualquiera de los dos puede venir en `None`: un update parcial (mandar solo uno de
+    los dos parámetros) no le pone valor por default al que quedó afuera -- si nunca se
+    configuró, sigue en `None`."""
+
+    iibb: str | None
+    nombre_comercial: str | None
 
     @staticmethod
     def _from_json(d: dict) -> FacturacionResult:

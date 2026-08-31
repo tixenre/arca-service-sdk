@@ -30,6 +30,8 @@ from arca_service_client import (
     ComprobanteAsociado,
     ComprobanteInput,
     ConfiguracionError,
+    CredencialYaActivaError,
+    CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
     ItemFactura,
@@ -273,22 +275,23 @@ def test_set_bonificado_409_levanta_bonificado_limite_error_no_idempotency_confl
     """El 409 de `set_bonificado` es un tipo DISTINTO al de idempotencia (ver
     `BonificadoLimiteError` en exceptions.py) -- este test existe específicamente para
     que un futuro cambio no lo confunda con `IdempotencyConflictError` sin que nada lo
-    note (los dos comparten status_code, y hoy arca-service ni siquiera los distingue
-    por `code` -- los dos traen `idempotency_key_reusada`, ver el comentario en
-    `_raise_for_status` -- así que la única señal real es el SITIO DE LLAMADA)."""
+    note. `code: "limite_bonificados_alcanzado"` (con `type: "configuracion"`, no
+    `"request"`) es lo que distingue a este 409 de cualquier otro -- `BonificadoLimiteError`
+    hereda de `ConfiguracionError`, no de `RequestError`."""
     httpx_mock.add_response(
         method="PUT",
         url=f"{_API}/clientes/cliente-1/bonificado",
         status_code=409,
         json=_error(
-            "request",
-            "idempotency_key_reusada",
+            "configuracion",
+            "limite_bonificados_alcanzado",
             "Se alcanzó el límite de seguridad de bonificados para esta plataforma.",
         ),
     )
     with pytest.raises(BonificadoLimiteError) as exc_info:
         client.set_bonificado("cliente-1", True)
     assert not isinstance(exc_info.value, IdempotencyConflictError)
+    assert isinstance(exc_info.value, ConfiguracionError)
     assert exc_info.value.status_code == 409
 
 
@@ -325,6 +328,32 @@ def test_set_facturacion_omite_el_campo_no_pasado(client, httpx_mock):
     client.set_facturacion("cliente-1", iibb="901-123456-7")
 
 
+def test_set_facturacion_campo_nunca_configurado_viene_null(client, httpx_mock):
+    """Un update parcial no le pone valor por default al campo que quedó afuera -- si
+    nunca se configuró antes, el response lo trae en `null`, no en `""`."""
+    httpx_mock.add_response(
+        method="PUT",
+        url=f"{_API}/clientes/cliente-1/facturacion",
+        match_json={"iibb": "901-123456-7"},
+        json={"iibb": "901-123456-7", "nombre_comercial": None},
+    )
+    result = client.set_facturacion("cliente-1", iibb="901-123456-7")
+    assert result.iibb == "901-123456-7"
+    assert result.nombre_comercial is None
+
+
+def test_set_facturacion_iibb_nunca_configurado_viene_null(client, httpx_mock):
+    httpx_mock.add_response(
+        method="PUT",
+        url=f"{_API}/clientes/cliente-1/facturacion",
+        match_json={"nombre_comercial": "La Esquina"},
+        json={"iibb": None, "nombre_comercial": "La Esquina"},
+    )
+    result = client.set_facturacion("cliente-1", nombre_comercial="La Esquina")
+    assert result.iibb is None
+    assert result.nombre_comercial == "La Esquina"
+
+
 # ---------------------------------------------------------------------------
 # Onboarding de credencial
 # ---------------------------------------------------------------------------
@@ -338,6 +367,47 @@ def test_generar_csr(client, httpx_mock):
         json={"csr_pem": "-----BEGIN CERTIFICATE REQUEST-----...", "alias": "cliente-1-2026"},
     )
     result = client.generar_csr("cliente-1", "20301234563")
+    assert result.alias == "cliente-1-2026"
+
+
+def test_generar_csr_409_csr_ya_existe(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/csr",
+        match_json={"cuit": "20301234563", "regenerar": False},
+        status_code=409,
+        json=_error("request", "csr_ya_existe", "Ya existe un CSR pendiente para este Cliente."),
+    )
+    with pytest.raises(CsrYaExisteError) as exc_info:
+        client.generar_csr("cliente-1", "20301234563")
+    assert exc_info.value.status_code == 409
+    assert isinstance(exc_info.value, RequestError)
+
+
+def test_generar_csr_409_credencial_ya_activa(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/csr",
+        match_json={"cuit": "20301234563", "regenerar": False},
+        status_code=409,
+        json=_error(
+            "request", "credencial_ya_activa", "Ya existe una credencial activa para este Cliente."
+        ),
+    )
+    with pytest.raises(CredencialYaActivaError) as exc_info:
+        client.generar_csr("cliente-1", "20301234563")
+    assert exc_info.value.status_code == 409
+    assert isinstance(exc_info.value, RequestError)
+
+
+def test_generar_csr_regenerar_evita_el_409(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/csr",
+        match_json={"cuit": "20301234563", "regenerar": True},
+        json={"csr_pem": "-----BEGIN CERTIFICATE REQUEST-----...", "alias": "cliente-1-2026"},
+    )
+    result = client.generar_csr("cliente-1", "20301234563", regenerar=True)
     assert result.alias == "cliente-1-2026"
 
 
