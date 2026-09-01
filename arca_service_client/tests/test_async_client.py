@@ -25,6 +25,7 @@ from arca_service_client import (
     ComprobanteInput,
     ConfiguracionError,
     CredencialYaActivaError,
+    CredentialsInvalidError,
     CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
@@ -202,6 +203,16 @@ async def test_context_manager_cierra_el_cliente_http(client_cert_files):
     ) as c:
         assert not c._http.is_closed
     assert c._http.is_closed
+
+
+async def test_credenciales_que_no_corresponden_levanta_credentials_invalid_error(
+    client_cert_files_mismatched,
+):
+    cert_path, key_path = client_cert_files_mismatched
+    with pytest.raises(CredentialsInvalidError):
+        AsyncArcaServiceClient(
+            base_url=_BASE_URL, client_cert_path=cert_path, client_key_path=key_path, api_key="x"
+        )
 
 
 # ---------------------------------------------------------------------------

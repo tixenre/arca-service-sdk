@@ -50,6 +50,20 @@ def client_cert_files(tmp_path):
 
 
 @pytest.fixture
+def client_cert_files_mismatched(tmp_path):
+    """Certificado de un par, clave de OTRO -- ambos individualmente válidos, pero no se
+    corresponden. Simula lo que `CredentialsInvalidError` existe para atajar: un
+    certificado/clave corrompidos o mezclados al copiarlos a mano."""
+    cert_pem, _ = _self_signed_cert_and_key_pem()
+    _, key_pem = _self_signed_cert_and_key_pem()
+    cert_path = tmp_path / "client.crt"
+    key_path = tmp_path / "client.key"
+    cert_path.write_bytes(cert_pem)
+    key_path.write_bytes(key_pem)
+    return str(cert_path), str(key_path)
+
+
+@pytest.fixture
 def client_cert_pem():
     """Igual que `client_cert_files`, pero el PEM en sí (str) -- para lo que simula la
     RESPUESTA de `POST /signup` (`local_config.save_profile`/`cli.py`), que llega como

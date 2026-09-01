@@ -70,6 +70,15 @@ _TIMEOUT_SECONDS_DEFAULT = 30.0
 LAYOUT_DEFAULT = "oficial"  # mismo default que usa el servidor si no se manda `layout`
 
 
+class CredentialsInvalidError(Exception):
+    """`client_cert_path`/`client_key_path` no forman un par válido -- certificado y
+    clave no se corresponden, o alguno de los dos está corrompido/mal formado (típico
+    después de copiarlos a mano hacia donde vayan a vivir: env vars, un gestor de
+    secretos). NO es un `ArcaServiceError` -- pasa ANTES de que exista ningún request,
+    nunca es una respuesta de arca-service. Sin este chequeo, el mismo problema recién
+    aparece como un `ssl.SSLError` cuando se manda el primer request."""
+
+
 @dataclass
 class ArcaServiceClient:
     """`base_url`: raíz del servicio SIN el prefijo de versión (ej.
@@ -80,7 +89,9 @@ class ArcaServiceClient:
     `client_cert_path`/`client_key_path`: rutas al certificado y clave privada de
     cliente para mTLS — el par que la CA mTLS delante de arca-service emitió para TU
     Plataforma como integrador, no el certificado AFIP de ningún Cliente particular (ese
-    es interno de arca-service, nunca sale de ahí).
+    es interno de arca-service, nunca sale de ahí). Si no forman un par válido, el
+    constructor levanta `CredentialsInvalidError` de una — no hace falta mandar ningún
+    request para enterarte.
 
     `api_key`: la API key de tu `Plataforma` en arca-service (Bearer token) — identifica
     QUIÉN sos, el mTLS ya identificó QUE SOS VOS.
@@ -120,7 +131,17 @@ class ArcaServiceClient:
         # (deprecado desde 0.28 — sigue andando pero emite un warning en cada
         # construcción; esto es lo que la propia librería recomienda en su lugar).
         ssl_context = ssl.create_default_context()
-        ssl_context.load_cert_chain(certfile=self.client_cert_path, keyfile=self.client_key_path)
+        try:
+            ssl_context.load_cert_chain(
+                certfile=self.client_cert_path, keyfile=self.client_key_path
+            )
+        except ssl.SSLError as exc:
+            # Mismo chequeo que ya hacían `completar-signup`/`import` en la CLI antes de
+            # guardar nada -- acá hacía falta también, para quien arma el par a mano (ej.
+            # copiándolo hacia un gestor de secretos) y nunca pasó por la CLI.
+            raise CredentialsInvalidError(
+                f"client_cert_path/client_key_path no forman un par válido: {exc}"
+            ) from exc
         self._http = _httpx.Client(
             base_url=f"{self.base_url.rstrip('/')}/api/v1",
             verify=ssl_context,

@@ -26,7 +26,12 @@ if TYPE_CHECKING:
 
 import httpx as _httpx
 
-from .client import _TIMEOUT_SECONDS_DEFAULT, LAYOUT_DEFAULT, _raise_for_status
+from .client import (
+    _TIMEOUT_SECONDS_DEFAULT,
+    LAYOUT_DEFAULT,
+    CredentialsInvalidError,
+    _raise_for_status,
+)
 from .crypto import seal
 from .local_config import DEFAULT_PROFILE, load_profile
 from .models import (
@@ -87,7 +92,15 @@ class AsyncArcaServiceClient:
         # (solo `.aclose()`/los métodos de request sí) -- por eso `__post_init__` puede
         # seguir siendo sync, igual que en `ArcaServiceClient`.
         ssl_context = ssl.create_default_context()
-        ssl_context.load_cert_chain(certfile=self.client_cert_path, keyfile=self.client_key_path)
+        try:
+            ssl_context.load_cert_chain(
+                certfile=self.client_cert_path, keyfile=self.client_key_path
+            )
+        except ssl.SSLError as exc:
+            # Ver ArcaServiceClient.__post_init__ (client.py) -- mismo motivo.
+            raise CredentialsInvalidError(
+                f"client_cert_path/client_key_path no forman un par válido: {exc}"
+            ) from exc
         self._http = _httpx.AsyncClient(
             base_url=f"{self.base_url.rstrip('/')}/api/v1",
             verify=ssl_context,

@@ -82,6 +82,16 @@ Python a mano, o no quiere instalar este paquete solo para el alta inicial. Sin
 `?invite=` en la URL, la misma página cubre el camino de `request-invite --con-csr` de
 arriba: la solicitud queda pendiente de revisión igual que si la mandaras por acá.
 
+**Antes de guardar cualquier certificado/clave en cualquier lugar, confirmá que
+son un par válido:** `https://arca.mancino.dev/signup/verificar` hace ese chequeo en el
+navegador (tampoco manda nada a ningún lado) — sirve para lo que hayas generado por
+cualquier medio, no solo por esta página, y no solo en el momento del alta: copiar
+credenciales a mano hacia donde vayan a vivir (env vars, un gestor de secretos) puede
+corromper un carácter sin que se note, y el error recién aparece después, como un fallo
+de TLS sin contexto. Si preferís no salir del código: `ArcaServiceClient(...)` hace este
+mismo chequeo solo, apenas lo construís — un par que no corresponde levanta
+`CredentialsInvalidError` de una, en vez de fallar recién en el primer request.
+
 El invite code te lo entrega quien administra arca-service por un canal seguro — es de
 un solo uso y vence, así que pedilo con `request-invite` de arriba si todavía no tenés
 uno vigente. `login` genera tu par RSA + CSR **en tu propia máquina** (la clave privada
@@ -120,7 +130,10 @@ client = ArcaServiceClient(
 ```
 
 Guardalos en un gestor de secretos compartido (nunca en un archivo
-commiteado ni en un log).
+commiteado ni en un log). Un certificado/clave que no correspondan levantan
+`CredentialsInvalidError` apenas construís el cliente (ver la nota sobre
+`https://arca.mancino.dev/signup/verificar` más arriba) — no hace falta esperar al
+primer request para enterarte.
 
 ## Uso
 

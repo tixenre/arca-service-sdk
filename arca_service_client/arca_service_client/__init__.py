@@ -33,7 +33,7 @@ API con `async def`/`await` en cada método, sobre `httpx.AsyncClient`."""
 from __future__ import annotations
 
 from .async_client import AsyncArcaServiceClient
-from .client import ArcaServiceClient
+from .client import ArcaServiceClient, CredentialsInvalidError
 from .crypto import EnvelopeError, seal
 from .enums import CbteTipo, Concepto, CondicionIva, DocTipo
 from .exceptions import (
@@ -98,7 +98,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.10"
+__version__ = "0.0.11"
 
 __all__ = [
     "__version__",
@@ -165,6 +165,7 @@ __all__ = [
     "BonificadoLimiteError",
     "ConfiguracionError",
     "CredencialYaActivaError",
+    "CredentialsInvalidError",
     "CredentialsNotFoundError",
     "CsrYaExisteError",
     "IdempotencyConflictError",
