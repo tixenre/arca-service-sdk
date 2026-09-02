@@ -45,6 +45,7 @@ from .exceptions import (
     BonificadoLimiteError,
     ConfiguracionError,
     CredencialYaActivaError,
+    CredentialsRejectedError,
     CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
@@ -98,7 +99,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.12"
+__version__ = "0.0.13"
 
 __all__ = [
     "__version__",
@@ -167,6 +168,7 @@ __all__ = [
     "CredencialYaActivaError",
     "CredentialsInvalidError",
     "CredentialsNotFoundError",
+    "CredentialsRejectedError",
     "CsrYaExisteError",
     "IdempotencyConflictError",
     "InternoError",

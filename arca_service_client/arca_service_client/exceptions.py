@@ -100,6 +100,25 @@ class NotFoundError(RequestError):
     caller no autorizado si un `external_ref` existe o no."""
 
 
+class CredentialsRejectedError(RequestError):
+    """401/403 — arca-service rechazó las credenciales de TU Plataforma. A pesar de
+    heredar de `RequestError` (el `type` que manda el servidor es `"request"`), NO es un
+    problema de lo que mandaste: reintentar el mismo request con el payload corregido da
+    exactamente lo mismo. Lo que hay que revisar es con qué te estás autenticando.
+
+    Las dos capas de auth fallan con el MISMO error, a propósito -- desde afuera no se
+    puede distinguir cuál de las dos te rechazó, para no confirmarle a nadie que una API
+    key existe pero la red no sirve, o al revés. Así que cualquiera de estas lo levanta:
+    la API key no existe, está revocada o vencida; tu Plataforma está desactivada; el
+    certificado mTLS no llegó, no es válido, o el request no entró por donde tiene que
+    entrar.
+
+    No confundir con `CredentialsInvalidError` (`client.py`), que es local y anterior:
+    ese salta al construir el cliente, cuando el certificado y la clave que le pasaste
+    no son un par entre sí -- sin haber hablado con nadie. Este sale de una respuesta
+    HTTP: el par estaba bien formado, y el servidor igual dijo que no."""
+
+
 class IdempotencyConflictError(RequestError):
     """409 — ya existe un intento con esa `idempotency_key` pero con datos DISTINTOS.
     Elegí una key nueva si es una emisión genuinamente distinta; si es un reintento de la

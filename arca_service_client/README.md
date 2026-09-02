@@ -185,6 +185,13 @@ llevar `precio_final` (con IVA incluido) — nunca los dos juntos. `receptor` id
 quién se le factura con exactamente una forma: `Receptor(cuit=...)`, `Receptor(dni=...,
 nombre=...)` o `Receptor(consumidor_final=True)`.
 
+**No mandes `fecha` salvo que necesites una distinta a hoy.** Es opcional: si la omitís,
+la pone el servidor, con el día argentino. Mandar `date.today()` "para ser explícito" es
+justamente lo que conviene evitar — en un proceso que corre en UTC eso ya es mañana a
+partir de las 21 hora argentina, así que un reintento que cruce esa hora manda un
+payload distinto con la misma `idempotency_key` y se lleva un `IdempotencyConflictError`
+(409) en vez de la emisión que ya existía.
+
 O como context manager, para que la conexión se cierre sola:
 
 ```python
@@ -455,6 +462,7 @@ para no obligarte a mirar `.code` a mano en los casos más comunes:
 
 | Excepción | `type` | Status típico | Cuándo |
 |---|---|---|---|
+| `CredentialsRejectedError` | `request` | 401 / 403 | arca-service rechazó las credenciales de TU Plataforma: API key inexistente, revocada o vencida, Plataforma desactivada, o el certificado mTLS que no llegó o no sirve. **No es un problema del payload** — corregir el request no cambia nada. Los dos casos dan el mismo error a propósito, así que desde afuera no se puede saber cuál de las dos capas falló |
 | `NotFoundError` | `request` | 404 | El recurso no existe para este Cliente, o el `external_ref` no existe / tu Plataforma no está autorizada contra él |
 | `IdempotencyConflictError` | `request` | 409 | Misma `idempotency_key`, datos distintos |
 | `RateLimitedError` | `request` | 429 | Límite de requests excedido — `.retry_after` en segundos |

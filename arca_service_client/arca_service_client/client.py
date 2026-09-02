@@ -37,6 +37,7 @@ from .exceptions import (
     BonificadoLimiteError,
     ConfiguracionError,
     CredencialYaActivaError,
+    CredentialsRejectedError,
     CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
@@ -692,6 +693,11 @@ class ArcaServiceClient:
 # tipar.
 _EXCEPCION_POR_CODE: dict[str, type[ArcaServiceError]] = {
     "no_encontrado": NotFoundError,
+    # Los dos rechazos de credencial: 401 (no te pudimos identificar) y 403 (el request
+    # no entró por donde tiene que entrar). Comparten excepción porque comparten remedio
+    # -- ver CredentialsRejectedError.
+    "no_autenticado": CredentialsRejectedError,
+    "origen_no_verificado": CredentialsRejectedError,
     "idempotency_key_reusada": IdempotencyConflictError,
     "csr_ya_existe": CsrYaExisteError,
     "credencial_ya_activa": CredencialYaActivaError,

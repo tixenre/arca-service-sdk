@@ -26,6 +26,7 @@ from arca_service_client import (
     ConfiguracionError,
     CredencialYaActivaError,
     CredentialsInvalidError,
+    CredentialsRejectedError,
     CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
@@ -1208,6 +1209,30 @@ async def test_409_levanta_idempotency_conflict_error(client, httpx_mock):
     )
     with pytest.raises(IdempotencyConflictError):
         await client.emitir_comprobante("cliente-1", _comprobante())
+
+
+async def test_401_levanta_credentials_rejected_error(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes",
+        status_code=401,
+        json=_error("request", "no_autenticado", "No autenticado."),
+    )
+    with pytest.raises(CredentialsRejectedError) as exc_info:
+        await client.emitir_comprobante("cliente-1", _comprobante())
+    assert exc_info.value.status_code == 401
+    assert isinstance(exc_info.value, RequestError)
+
+
+async def test_403_origen_no_verificado_levanta_credentials_rejected_error(client, httpx_mock):
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes/factura-1",
+        status_code=403,
+        json=_error("request", "origen_no_verificado", "Origen no verificado."),
+    )
+    with pytest.raises(CredentialsRejectedError):
+        await client.get_comprobante("cliente-1", "factura-1")
 
 
 async def test_404_levanta_not_found_error(client, httpx_mock):
