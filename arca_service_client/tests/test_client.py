@@ -866,6 +866,35 @@ def test_sesion_embebida_input_to_payload_no_tiene_receptor():
     assert "receptor" not in payload
 
 
+def test_crear_sesion_embebida_comprobante_con_receptor(client, httpx_mock):
+    """Con `receptor`, la Plataforma ya tiene el dato fiscal -- el iframe pasa a ser
+    solo la pantalla donde el comprador mira la factura y confirma, sin cargar nada."""
+    capturado = {}
+
+    def _responder(request):
+        import json as _json
+
+        capturado["body"] = _json.loads(request.content)
+        return __import__("httpx").Response(
+            201,
+            json={
+                "embed_url": "https://arca.test/embed/facturar/xyz",
+                "expires_at": "2026-08-21T22:30:00.000000Z",
+            },
+        )
+
+    httpx_mock.add_callback(
+        _responder,
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes/sesion-embebida",
+    )
+
+    sesion = _sesion_embebida(receptor=Receptor(cuit="20301234563"))
+    client.crear_sesion_embebida_comprobante("cliente-1", sesion)
+
+    assert capturado["body"]["receptor"]["cuit"] == "20301234563"
+
+
 # ---------------------------------------------------------------------------
 # Documento renderizado
 # ---------------------------------------------------------------------------

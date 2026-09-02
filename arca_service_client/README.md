@@ -321,13 +321,12 @@ html = client.preview_comprobante_html(onboarding.external_ref, comprobante)
 pdf = client.preview_nota_credito_pdf(onboarding.external_ref, nota_credito)
 ```
 
-### Sesión embebida: facturar sin conocer al receptor
+### Sesión embebida: facturar en un `<iframe>`
 
 `crear_sesion_embebida_comprobante`/`crear_sesion_embebida_nota_credito`/
 `crear_sesion_embebida_nota_debito` son una puerta de entrada ALTERNATIVA a
 `emitir_comprobante`/`emitir_nota_credito`/`emitir_nota_debito` — no las reemplazan, es
-un método más. Sirven para cuando tu Plataforma sabe cuánto facturar pero no a quién: el
-comprador completa sus propios datos en un `<iframe>` que sirve arca-service.
+un método más. Devuelven un link para embeber en un `<iframe>` en vez de emitir de una.
 
 ```python
 from arca_service_client import SesionEmbebidaInput
@@ -346,12 +345,25 @@ resultado.embed_url    # listo para <iframe src="...">
 resultado.expires_at   # datetime UTC -- 30 min desde que se creó la sesión
 ```
 
-`SesionEmbebidaInput` es el mismo body que `ComprobanteInput` pero SIN `receptor` -- eso
-lo completa el comprador adentro del iframe. El importe y todo lo demás quedan fijos
-desde este llamado: la página embebida no los puede cambiar, y un ítem mal armado da
-error acá y no media hora después con alguien mirando un iframe que no carga.
+`SesionEmbebidaInput` es el mismo body que `ComprobanteInput`, pero con `receptor`
+OPCIONAL -- según lo pasés o no, cambia qué hace el iframe:
+
+* **Sin `receptor`** (el ejemplo de arriba) -- tu Plataforma sabe cuánto facturar pero
+  no a quién; el comprador completa su propio dato fiscal adentro del iframe.
+* **Con `receptor`** (`SesionEmbebidaInput(..., receptor=Receptor(cuit="..."))`) -- tu
+  Plataforma ya tiene el dato fiscal en su base; el iframe pasa a ser solo la pantalla
+  donde el comprador mira la factura que está por salir y confirma, sin cargar nada.
+
+El resto del payload (ítems, importes) queda fijo desde este llamado en los dos casos:
+la página embebida no lo puede cambiar, y un ítem mal armado da error acá y no media
+hora después con alguien mirando un iframe que no carga.
 `crear_sesion_embebida_nota_credito`/`_nota_debito` exigen `comprobante_asociado`, igual
 que sus equivalentes `emitir_*`.
+
+Para embeber `embed_url` del lado del frontend -- eventos de éxito/error, qué pasa si
+el comprador abandona a mitad de camino, cómo hacerlo con o sin el SDK de JS de
+arca-service -- ver `INTEGRACION.md` en el repo de arca-service: esa parte vive del
+lado del browser, no es código Python.
 
 ## `idempotency_key`
 

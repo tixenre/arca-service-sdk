@@ -261,11 +261,21 @@ class ComprobanteInput:
 class SesionEmbebidaInput:
     """Mismo body que `ComprobanteInput`, para
     `ArcaServiceClient.crear_sesion_embebida_comprobante`/`_nota_credito`/`_nota_debito`
-    -- pero SIN `receptor`: eso lo completa el comprador dentro del `<iframe>`, no
-    tu Plataforma. Por eso es un dataclass aparte y no `ComprobanteInput` con ese
-    campo opcional -- `ComprobanteInput` lo exige a propósito para
-    `emitir_comprobante` y compañía, y volverlo opcional ahí debilitaría esa
-    validación para el camino que sí conoce al receptor.
+    -- pero con `receptor` OPCIONAL, a diferencia de ahí. Por eso es un dataclass
+    aparte y no `ComprobanteInput` con ese campo relajado -- `ComprobanteInput` lo
+    exige a propósito para `emitir_comprobante` y compañía, y volverlo opcional ahí
+    debilitaría esa validación para el camino que sí conoce al receptor.
+
+    Dos modos, según si lo pasás:
+
+    * SIN `receptor` -- tu Plataforma sabe cuánto facturar pero no a quién; el
+      comprador completa su propio dato fiscal dentro del `<iframe>`.
+    * CON `receptor` -- tu Plataforma ya tiene el dato fiscal en su base; el
+      `<iframe>` pasa a ser solo la pantalla donde el comprador mira la factura
+      que está por salir y confirma, sin cargar nada.
+
+    En los dos casos, el resto del payload (ítems, importes) queda fijo desde este
+    llamado -- la página embebida no lo puede cambiar.
 
     `comprobante_asociado` es obligatorio del lado servidor para
     `crear_sesion_embebida_nota_credito`/`_nota_debito`, igual que en
@@ -274,6 +284,7 @@ class SesionEmbebidaInput:
     idempotency_key: str
     concepto: int
     items: list[ItemFactura] = field(default_factory=list)
+    receptor: Receptor | None = None
     punto_venta: int | None = None
     fecha: date | None = None
     fecha_serv_desde: date | None = None
@@ -296,6 +307,8 @@ class SesionEmbebidaInput:
             "tributos": [t._to_dict() for t in self.tributos],
             "opcionales": [o._to_dict() for o in self.opcionales],
         }
+        if self.receptor is not None:
+            payload["receptor"] = self.receptor._to_dict()
         if self.punto_venta is not None:
             payload["punto_venta"] = self.punto_venta
         if self.fecha is not None:

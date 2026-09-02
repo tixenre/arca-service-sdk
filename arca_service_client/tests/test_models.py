@@ -390,6 +390,23 @@ def test_sesion_embebida_input_to_payload_no_incluye_receptor():
     assert "receptor" not in payload
 
 
+def test_sesion_embebida_input_to_payload_incluye_receptor_si_se_pasa():
+    """`receptor` es opcional en `SesionEmbebidaInput` (a diferencia de
+    `ComprobanteInput`, donde es obligatorio) -- pasarlo fija de antemano a quién se le
+    factura, dejando el iframe como una pantalla de solo confirmar."""
+    payload = SesionEmbebidaInput(
+        idempotency_key="factura-1",
+        concepto=1,
+        receptor=Receptor(cuit="20301234563"),
+    ).to_payload()
+    assert payload["receptor"] == {
+        "cuit": "20301234563",
+        "consumidor_final": False,
+        "nombre": "",
+        "domicilio": "",
+    }
+
+
 def test_sesion_embebida_input_to_payload_incluye_comprobante_asociado():
     payload = SesionEmbebidaInput(
         idempotency_key="nc-1",

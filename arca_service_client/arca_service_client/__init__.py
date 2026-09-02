@@ -98,7 +98,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.11"
+__version__ = "0.0.12"
 
 __all__ = [
     "__version__",
