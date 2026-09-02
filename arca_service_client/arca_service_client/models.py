@@ -169,7 +169,10 @@ class Receptor:
     se ignora.
 
     `email` es aparte y va con cualquiera de las tres formas: no es un dato
-    fiscal, es el contacto para mandarle una copia del comprobante."""
+    fiscal, es el contacto del receptor. Ojo: hoy queda guardado con el
+    comprobante, pero NO se manda ninguna copia a esa casilla -- el envío por
+    email todavía no está activo del lado de arca-service. Si tu flujo depende
+    de que al receptor le llegue algo, mandáselo vos."""
 
     cuit: str | None = None
     dni: str | None = None

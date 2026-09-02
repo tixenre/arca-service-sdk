@@ -365,6 +365,20 @@ el comprador abandona a mitad de camino, cómo hacerlo con o sin el SDK de JS de
 arca-service -- ver `INTEGRACION.md` en el repo de arca-service: esa parte vive del
 lado del browser, no es código Python.
 
+**Crear la sesión NO es idempotente, aunque la emisión sí lo sea.** Llamar dos veces con
+la misma `idempotency_key` no da `IdempotencyConflictError`: devuelve un `embed_url`
+nuevo las dos veces. Es a propósito -- si el comprador abandonó y vuelve mañana (el link
+vive 30 minutos), lo que hace falta es otro link, no un error. De las dos sesiones sale
+UN solo comprobante igual, porque la idempotencia es de la emisión y esa clave sigue
+siendo la misma.
+
+**Que el iframe termine no es lo mismo que que haya CAE.** El evento de éxito del
+browser dice que el comprador terminó; el CAE lo pone AFIP después, y puede rechazar.
+Confirmá siempre desde tu backend antes de dar algo por facturado -- con
+`get_comprobante(external_ref, idempotency_key)` y `estado == "issued"`, o esperando el
+webhook. `"pending"` todavía no terminó y `"error"` es un rechazo con el motivo en
+`.errores`.
+
 ## `idempotency_key`
 
 Tiene que ser determinístico por operación real (no un valor random generado en cada
