@@ -68,7 +68,15 @@ from .models import (
 )
 
 _TIMEOUT_SECONDS_DEFAULT = 30.0
-LAYOUT_DEFAULT = "oficial"  # mismo default que usa el servidor si no se manda `layout`
+# Los tres layouts que aceptan los doce métodos que renderizan. `"oficial"` es el mismo
+# default que usa el servidor si no se manda `layout`.
+#
+# `"simplificada"` es la única con límites: es una tarjeta chica y NO recorta lo que no
+# entra -- devuelve 422 (`RequestError`) si el comprobante tiene más de 3 ítems, o si
+# algún ítem no se puede resumir a "descripción + importe" sin perder nada (descripción
+# de más de 40 caracteres, cantidad != 1, con bonificación, con detalle, o con una unidad
+# de medida distinta de la default). Ver el README. Las otras dos no tienen límite.
+LAYOUT_DEFAULT = "oficial"
 
 
 class CredentialsInvalidError(Exception):

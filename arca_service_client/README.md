@@ -328,6 +328,30 @@ html = client.preview_comprobante_html(onboarding.external_ref, comprobante)
 pdf = client.preview_nota_credito_pdf(onboarding.external_ref, nota_credito)
 ```
 
+### `layout`: los tres formatos, y cuándo `simplificada` no sirve
+
+Los doce métodos que renderizan (`get_comprobante_html`/`_pdf`/`_imagen` y los nueve de
+preview) toman `layout`, con tres valores posibles:
+
+| `layout` | Para qué |
+|---|---|
+| `"oficial"` (default) | El comprobante completo, como se espera de un documento fiscal |
+| `"detallada"` | Igual, con más desglose por ítem |
+| `"simplificada"` | Una tarjeta chica, pensada para compartir (ej. por mensajería) |
+
+**`simplificada` no acepta cualquier comprobante, y lo rechaza en vez de recortarlo.** La
+tarjeta tiene lugar para poco, así que el servidor devuelve **422** (`RequestError`, con
+el motivo en `.message`) si el comprobante no entra. Tiene que cumplir todo esto:
+
+- Hasta **3 ítems**.
+- Cada ítem, con `descripcion` de **hasta 40 caracteres**, `cantidad=1`,
+  `bonificacion_pct=0`, sin `detalle`, y `unidad_medida="unidad"` (el default).
+
+Si no entra, pedí el mismo comprobante en `"oficial"` o `"detallada"`, que no tienen
+límite. Los otros dos layouts nunca dan este error, así que si no vas a usar
+`simplificada` no hace falta que manejes este caso. `crear_embed_token` y el iframe de
+facturación no exponen `layout`: siempre renderizan en `"oficial"`.
+
 ### Sesión embebida: facturar en un `<iframe>`
 
 `crear_sesion_embebida_comprobante`/`crear_sesion_embebida_nota_credito`/
