@@ -161,6 +161,25 @@ Las fallas de **transporte** (timeout, DNS, TLS) no se envuelven: se propagan ta
 tira Node. "El servidor respondió que no" y "ni pudimos preguntarle" son dos causas con
 remedios distintos.
 
+## Onboarding de una credencial: homologación vs. producción
+
+Cada credencial AFIP (la de un Cliente, no la tuya) tiene su propio ambiente —
+homologación (el sandbox de AFIP, comprobantes que no valen) o producción (comprobantes
+fiscales reales) — y es un dato de la credencial, no de contra qué `baseUrl` estás
+pegando. Un mismo deployment de arca-service puede tener Clientes en los dos ambientes al
+mismo tiempo; no hay un host de homologación aparte.
+
+Ni `generarCsr`/`completarCredencial`, ni `importarCredencial`, ni
+`crearConexionAfipEmbedToken` te dejan elegir: los tres usan el default que tenga
+configurado ESE deployment, y eso lo decide quien lo opera, no vos ni este paquete.
+Tampoco hay ningún campo en ninguna respuesta que diga en qué ambiente quedó una
+credencial — si te importa saberlo, preguntale a quien te dio el `baseUrl`.
+
+Si necesitás específicamente un Cliente de prueba en homologación contra un deployment
+que por default da de alta en producción, eso no es self-serve: pedile a quien opera
+arca-service que te lo configure así — es una decisión que se toma al dar de alta la
+credencial, no algo que se pueda pedir por acá después.
+
 ## Importar una credencial AFIP existente
 
 `importarCredencial` es el único método con criptografía propia: sella la clave privada

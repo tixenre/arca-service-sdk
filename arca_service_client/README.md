@@ -511,6 +511,26 @@ preguntarle" son dos causas con remedios distintos.
 
 ## Onboarding de una credencial
 
+### Homologación vs. producción
+
+Cada credencial AFIP (la de un Cliente, no la tuya) tiene su propio ambiente —
+homologación (el sandbox de AFIP, comprobantes que no valen) o producción (comprobantes
+fiscales reales) — y es un dato de la credencial, no de contra qué `base_url` estás
+pegando. Un mismo deployment de arca-service puede tener Clientes en los dos ambientes al
+mismo tiempo; no hay un host de homologación aparte.
+
+Ninguno de los caminos de acá abajo (`generar_csr`/`completar_credencial`,
+`importar_credencial`, ni la conexión AFIP embebida) te deja elegir: todos usan el default
+que tenga configurado ESE deployment de arca-service, y eso lo decide quien lo opera, no
+vos ni este SDK. Tampoco hay ningún campo en ninguna respuesta que diga en qué ambiente
+quedó una credencial — si te importa saberlo, preguntale a quien te dio el `base_url`
+contra el que estás integrando.
+
+Si necesitás específicamente un Cliente de prueba en homologación (para tus propios tests,
+por ejemplo) contra un deployment que por default da de alta en producción, eso no es
+self-serve: pedile a quien opera arca-service que te lo configure así — es una decisión
+que se toma al dar de alta la credencial, no algo que se pueda pedir por acá después.
+
 Dos caminos hacia una `ArcaCredential` en arca-service, según qué tenga tu integrador:
 
 - **Sin certificado todavía**: `generar_csr` (arca-service genera la clave privada y un
