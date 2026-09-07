@@ -29,6 +29,7 @@ import {
   emisionFromJson,
   facturacionFromJson,
   generarCsrFromJson,
+  habilitacionFromJson,
   listaComprobantesFromJson,
   loteItemFromJson,
   onboardingFromJson,
@@ -46,6 +47,7 @@ import {
   type FacturacionResult,
   type FechaISO,
   type GenerarCsrResult,
+  type HabilitacionResult,
   type ListaComprobantesResult,
   type LoteItemResult,
   type OnboardingResult,
@@ -63,10 +65,10 @@ const TIMEOUT_MS_DEFAULT = 30_000
  * default que usa el servidor si no se manda `layout`.
  *
  * `"simplificada"` es la única con límites: es una tarjeta chica y NO recorta lo que no
- * entra, devuelve 422 (`RequestError`) si el comprobante tiene más de 3 ítems, o si algún
- * ítem no se puede resumir a "descripción + importe" sin perder nada (descripción de más de
- * 40 caracteres, cantidad != 1, con bonificación, con detalle, o con una unidad de medida
- * distinta de la default). Las otras dos no tienen límite.
+ * entra, devuelve 422 (`LayoutNoAptoError`, `param: "layout"`) si el comprobante tiene más
+ * de 3 ítems, o si algún ítem no se puede resumir a "descripción + importe" sin perder nada
+ * (descripción de más de 40 caracteres, cantidad != 1, con bonificación, con detalle, o con
+ * una unidad de medida distinta de la default). Las otras dos no tienen límite.
  */
 export type Layout = 'oficial' | 'detallada' | 'simplificada'
 
@@ -219,6 +221,33 @@ export class ArcaServiceClient {
     if (datos.nombreComercial !== undefined) json['nombre_comercial'] = datos.nombreComercial
     return facturacionFromJson(
       await this.#json({ method: 'PUT', path: `/clientes/${externalRef}/facturacion`, json }),
+    )
+  }
+
+  /**
+   * Confirma que este Cliente quiere emitir comprobantes fiscales reales -- sin esto,
+   * `emitirComprobante`/`emitirNotaCredito`/`emitirNotaDebito` (sueltos o en lote) levantan
+   * `ClienteEnPracticaError` (422); `previewComprobante`, `diagnosticarCredencial` y
+   * `consultarPadron` andan igual sin llamar esto.
+   *
+   * Sin body -- es una confirmación, no hay nada que elegir. Idempotente: llamarlo de nuevo
+   * sobre un Cliente ya habilitado devuelve lo mismo sin volver a sellar nada, así que un
+   * reintento de red nunca duplica un consentimiento. Los Clientes que ya venían facturando
+   * antes de que este paso existiera ya están habilitados -- no hace falta llamar esto para
+   * ellos.
+   *
+   * **No hace falta si facturás a través de `crearSesionEmbebidaComprobante`/
+   * `_NotaCredito`/`_NotaDebito`**: el iframe hace esta misma confirmación solo, como parte
+   * de la pantalla de confirmar, sin que tu Plataforma llame nada. Llamalo solo si tu
+   * integración factura directo con `emitirComprobante` y compañía.
+   *
+   * `ClienteSuspendidoError` (422) si la emisión de este Cliente está cortada -- a
+   * diferencia del caso de arriba, eso no se destraba llamando esto ni ningún otro método:
+   * es un corte comercial que solo reactiva un operador de arca-service.
+   */
+  async habilitarCliente(externalRef: string): Promise<HabilitacionResult> {
+    return habilitacionFromJson(
+      await this.#json({ method: 'POST', path: `/clientes/${externalRef}/habilitar` }),
     )
   }
 

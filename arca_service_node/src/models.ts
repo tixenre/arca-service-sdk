@@ -286,6 +286,27 @@ export interface FacturacionResult {
 }
 
 /**
+ * Respuesta de `habilitarCliente` -- `habilitacion` viene siempre en `"habilitado"` (el
+ * único otro valor posible, `"suspendido"`, levanta `ClienteSuspendidoError` en vez de
+ * responder 200; `"practica"` nunca sale de acá, es el estado ANTES de llamar este
+ * método).
+ *
+ * Las dos fechas dicen cosas distintas:
+ *
+ * - `habilitadoAt` -- cuándo alguien dio este consentimiento. `null` para Clientes que ya
+ *   facturaban antes de que este campo existiera (no representa un consentimiento nuevo).
+ * - `primerCaeAt` -- cuándo AFIP autorizó el primer comprobante real de este Cliente.
+ *   `null` hasta que eso pase: consentir no lo mueve, y una primera factura que AFIP
+ *   rechaza tampoco. **Para saber si el Cliente ya facturó de verdad, es este campo el
+ *   que hay que mirar, no `habilitadoAt`.**
+ */
+export interface HabilitacionResult {
+  habilitacion: string
+  habilitadoAt: Date | null
+  primerCaeAt: Date | null
+}
+
+/**
  * `embedUrl` es un link PÚBLICO (nadie necesita mTLS ni tu API key para abrirlo) que vale
  * hasta `expiresAt`. Tratalo como un secreto de vida corta: no lo loguees ni lo guardes más
  * tiempo del que dure.
@@ -552,6 +573,14 @@ export function bonificadoFromJson(d: Json): BonificadoResult {
 
 export function facturacionFromJson(d: Json): FacturacionResult {
   return { iibb: d['iibb'] ?? null, nombreComercial: d['nombre_comercial'] ?? null }
+}
+
+export function habilitacionFromJson(d: Json): HabilitacionResult {
+  return {
+    habilitacion: d['habilitacion'],
+    habilitadoAt: fechaHoraOpcional(d['habilitado_at']),
+    primerCaeAt: fechaHoraOpcional(d['primer_cae_at']),
+  }
 }
 
 export function embedTokenFromJson(d: Json): EmbedTokenResult {

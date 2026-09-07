@@ -17,7 +17,15 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { ArcaServiceClient } from '../src/client.js'
-import { CredentialsInvalidError, CredentialsRejectedError, NotFoundError } from '../src/errors.js'
+import {
+  ClienteEnPracticaError,
+  ClienteSuspendidoError,
+  ConfiguracionError,
+  CredentialsInvalidError,
+  CredentialsRejectedError,
+  LayoutNoAptoError,
+  NotFoundError,
+} from '../src/errors.js'
 
 interface Recibido {
   method: string
@@ -205,6 +213,28 @@ describe('métodos', () => {
     expect(ultimo().method).toBe('PUT')
     expect(JSON.parse(ultimo().body)).toEqual({ iibb: '901-123456-7' })
     expect(r.nombreComercial).toBeNull()
+    c.close()
+  })
+
+  it('habilitarCliente no manda body y parsea las dos fechas', async () => {
+    const c = cliente()
+    responder({
+      json: {
+        habilitacion: 'habilitado',
+        habilitado_at: '2026-09-05T14:23:11.482913Z',
+        primer_cae_at: null,
+      },
+    })
+
+    const r = await c.habilitarCliente('cliente-1')
+
+    expect(ultimo().method).toBe('POST')
+    expect(ultimo().url).toBe('/api/v1/clientes/cliente-1/habilitar')
+    expect(ultimo().body).toBe('')
+    expect(r.habilitacion).toBe('habilitado')
+    expect(r.habilitadoAt).toBeInstanceOf(Date)
+    expect(r.habilitadoAt?.toISOString()).toBe('2026-09-05T14:23:11.482Z')
+    expect(r.primerCaeAt).toBeNull()
     c.close()
   })
 
@@ -399,16 +429,61 @@ describe('errores', () => {
       json: {
         error: {
           type: 'request',
-          code: 'request_invalido',
-          message: 'No se puede usar la tarjeta simplificada para este comprobante.',
+          code: 'layout_no_apto',
+          message: "Este comprobante tiene 5 ítems y 'simplificada' acepta hasta 3.",
+          param: 'layout',
         },
       },
     })
 
-    // El caso real del layout simplificada: no devuelve un PDF recortado, devuelve 422.
-    await expect(
-      c.getComprobantePdf('cliente-1', 'factura-1', { layout: 'simplificada' }),
-    ).rejects.toThrow(/tarjeta simplificada/)
+    // El caso real del layout simplificada: no devuelve un PDF recortado, devuelve 422 con
+    // code propio (layout_no_apto) -- no el 422 genérico.
+    const promesa = c.getComprobantePdf('cliente-1', 'factura-1', { layout: 'simplificada' })
+    await expect(promesa).rejects.toBeInstanceOf(LayoutNoAptoError)
+    await expect(promesa.catch((e) => e.param)).resolves.toBe('layout')
+    c.close()
+  })
+
+  it('cliente_en_practica llega como ClienteEnPracticaError, distinguible de suspendido', async () => {
+    const c = cliente()
+    responder({
+      status: 422,
+      json: {
+        error: {
+          type: 'configuracion',
+          code: 'cliente_en_practica',
+          message: 'Este cliente todavía no confirmó que quiere emitir comprobantes fiscales reales.',
+        },
+      },
+    })
+
+    const promesa = c.emitirComprobante('cliente-1', {
+      idempotencyKey: 'f-1',
+      concepto: 1,
+      receptor: { consumidorFinal: true },
+    })
+    await expect(promesa).rejects.toBeInstanceOf(ClienteEnPracticaError)
+    await expect(promesa).rejects.toBeInstanceOf(ConfiguracionError)
+    await expect(promesa.catch((e) => e instanceof ClienteSuspendidoError)).resolves.toBe(false)
+    c.close()
+  })
+
+  it('cliente_suspendido en habilitarCliente llega como ClienteSuspendidoError', async () => {
+    const c = cliente()
+    responder({
+      status: 422,
+      json: {
+        error: {
+          type: 'configuracion',
+          code: 'cliente_suspendido',
+          message: 'La emisión de este cliente está suspendida y no se reactiva desde la API.',
+        },
+      },
+    })
+
+    const promesa = c.habilitarCliente('cliente-1')
+    await expect(promesa).rejects.toBeInstanceOf(ClienteSuspendidoError)
+    await expect(promesa.catch((e) => e instanceof ClienteEnPracticaError)).resolves.toBe(false)
     c.close()
   })
 })

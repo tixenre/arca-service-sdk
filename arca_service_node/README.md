@@ -73,6 +73,40 @@ Por la misma razón las fechas de comprobante son strings `'YYYY-MM-DD'` y no `D
 `Date` es un instante, y convertirlo a día calendario reintroduce el bug de zona horaria
 que se quiere evitar. `expiresAt`, que sí es un instante, viene como `Date`.
 
+## Antes de emitir de verdad: `habilitarCliente`
+
+Un Cliente nuevo arranca en modo práctica: `previewComprobante`, `diagnosticarCredencial`
+y `consultarPadron` andan igual, pero `emitirComprobante`/`emitirNotaCredito`/
+`emitirNotaDebito` (sueltos o en lote) devuelven **422** (`ClienteEnPracticaError`) hasta
+que alguien confirme que quiere facturar de verdad:
+
+```ts
+const resultado = await client.habilitarCliente(externalRef)
+resultado.habilitacion  // "habilitado"
+resultado.habilitadoAt  // Date -- cuándo se dio este consentimiento
+resultado.primerCaeAt   // null hasta que AFIP autorice el primer comprobante real
+```
+
+Sin body -- es una confirmación, no hay nada que elegir. Idempotente: llamarlo de nuevo
+sobre un Cliente ya habilitado devuelve lo mismo sin volver a sellar nada, así que un
+reintento de red nunca duplica un consentimiento. Los Clientes que ya venían facturando
+antes de que este paso existiera ya están habilitados — no hace falta llamar esto para
+ellos.
+
+**No hace falta si facturás a través de la sesión embebida** (ver más abajo): el iframe
+hace esta misma pregunta solo, como parte de la pantalla de confirmar, sin que tu
+Plataforma llame nada. Llamalo solo si tu integración factura directo con
+`emitirComprobante` y compañía.
+
+`ClienteSuspendidoError` (422) si la emisión de este Cliente está cortada -- a diferencia
+del caso de arriba, eso no se destraba llamando esto ni ningún otro método: es un corte
+comercial que solo reactiva un operador de arca-service.
+
+**`habilitadoAt` no es lo mismo que "ya facturó de verdad".** Consentir es un permiso, y
+un permiso ejercido contra una primera factura que AFIP rechaza no mueve `primerCaeAt`. Si
+lo que te importa es si el Cliente ya tiene un comprobante real emitido, es `primerCaeAt`
+el campo que hay que mirar, no `habilitadoAt`.
+
 ## Emisión: siempre asincrónica
 
 `emitirComprobante` devuelve `estado: 'pending'` y el CAE llega después. Hay dos formas de
@@ -113,18 +147,90 @@ lleva un `IdempotencyConflictError` con la misma `idempotencyKey`.
 ## `layout`: los tres formatos, y cuándo `simplificada` no sirve
 
 Los doce métodos que renderizan (`getComprobanteHtml`/`Pdf`/`Imagen` y los nueve de
-preview) toman `{ layout }`:
+preview) toman `{ layout }` -- los tres incluyen lo que AFIP exige (CAE, QR fiscal, IVA
+discriminado, leyenda de Transparencia Fiscal); lo que cambia es cuánto desglose por ítem,
+no la validez fiscal:
 
-| `layout` | Para qué |
-|---|---|
-| `'oficial'` (default) | El comprobante completo |
-| `'detallada'` | Igual, con más desglose por ítem |
-| `'simplificada'` | Una tarjeta chica, para compartir |
+| | `'oficial'` (default) | `'detallada'` | `'simplificada'` |
+|---|---|---|---|
+| Formato | A4 | A4, identidad visual propia | Tarjeta 4:5 (1080×1350 px), para compartir |
+| Código de producto | sí | no | no |
+| Descripción + detalle | sí | sí | solo descripción |
+| Cantidad | sí | sí | no |
+| Unidad de medida | sí | no | no |
+| Precio unitario | sí | sí | no |
+| % de bonificación | sí | no | no |
+| Subtotal por ítem | sí | sí (ya con la bonificación aplicada) | sí |
 
-`'simplificada'` **rechaza** el comprobante que no le entra en vez de recortarlo: devuelve
-422 (`RequestError`) si hay más de 3 ítems, o si algún ítem tiene descripción de más de 40
-caracteres, `cantidad` distinta de 1, bonificación, detalle, o una unidad de medida que no
-sea la default. Si no entra, pedilo en `'oficial'` o `'detallada'`, que no tienen límite.
+**`'detallada'` no es "`oficial` con más detalle" — es al revés: omite columnas** (código,
+unidad de medida, % de bonificación) y las resuelve adentro del subtotal.
+
+`'simplificada'` **rechaza** el comprobante que no le entra en vez de recortarlo: la
+tarjeta tiene lugar para poco, y lo que no entra ahí no es una columna, es el ítem entero.
+Devuelve **422** (`LayoutNoAptoError`, `.param === "layout"`, con cuántos ítems tiene y
+cuántos entran en `.message`) si hay más de 3 ítems, o si algún ítem tiene descripción de
+más de 40 caracteres, `cantidad` distinta de 1, bonificación, detalle, o una unidad de
+medida que no sea la default. Si no entra, pedilo en `'oficial'` o `'detallada'`, que no
+tienen límite.
+
+**`Imagen` captura una sola página.** Un comprobante `'oficial'`/`'detallada'` con más
+ítems de los que entran en un A4 sale cortado por abajo en el PNG -- el `Pdf` del mismo
+comprobante no, porque ahí el renderizador pagina.
+
+## Sesión embebida: facturar en un `<iframe>`
+
+`crearSesionEmbebidaComprobante`/`crearSesionEmbebidaNotaCredito`/
+`crearSesionEmbebidaNotaDebito` son una puerta de entrada ALTERNATIVA a
+`emitirComprobante`/`emitirNotaCredito`/`emitirNotaDebito` — no las reemplazan, es un
+método más. Devuelven un link para embeber en un `<iframe>` en vez de emitir de una:
+
+```ts
+const resultado = await client.crearSesionEmbebidaComprobante(externalRef, {
+  idempotencyKey: 'factura-8231',
+  concepto: Concepto.PRODUCTOS,
+  items: [{ descripcion: 'Consultoría', iva: '21', precioUnitario: '1000.00' }],
+})
+resultado.embedUrl   // listo para <iframe src="...">
+resultado.expiresAt  // Date -- 30 min desde que se creó la sesión
+```
+
+El body es el mismo que `emitirComprobante`, pero con `receptor` OPCIONAL -- según lo
+pases o no, cambia qué hace el iframe:
+
+* **Sin `receptor`** (el ejemplo de arriba) -- tu Plataforma sabe cuánto facturar pero no
+  a quién; el comprador completa su propio dato fiscal adentro del iframe.
+* **Con `receptor`** (`{ ..., receptor: { cuit: '...' } }`) -- tu Plataforma ya tiene el
+  dato fiscal en su base; el iframe pasa a ser solo la pantalla donde el comprador mira la
+  factura que está por salir y confirma, sin cargar nada.
+
+**Si tenés el email del receptor, mandalo** (`{ cuit: '...', email: '...' }`): con eso el
+iframe deja de pedírselo a la persona -- le muestra a dónde va la copia del comprobante y
+le ofrece cambiarlo, en vez de un campo vacío pidiendo un dato que vos ya tenías. Si la
+persona escribe uno distinto ahí, ese gana para cualquier factura futura a ese mismo CUIT
+(de cualquier integración, no solo la tuya) -- el que vos mandaste vale solo para esta
+emisión. Sin `cuit` (receptor por DNI/consumidor final) se le avisa igual a dónde va la
+copia, pero no se le ofrece cambiarlo: no hay bajo qué guardar otro.
+
+El resto del payload (ítems, importes) queda fijo desde este llamado en los dos casos: la
+página embebida no lo puede cambiar, y un ítem mal armado da error acá y no media hora
+después con alguien mirando un iframe que no carga. `crearSesionEmbebidaNotaCredito`/
+`NotaDebito` exigen `comprobanteAsociado`, igual que sus equivalentes `emitir*`.
+
+Para embeber `embedUrl` del lado del frontend -- eventos de éxito/error, qué pasa si el
+comprador abandona a mitad de camino, cómo hacerlo con o sin el SDK de JS de arca-service
+-- ver `INTEGRACION.md` en el repo de arca-service: esa parte vive del lado del browser,
+no es código de este paquete.
+
+**Crear la sesión NO es idempotente, aunque la emisión sí lo sea.** Llamar dos veces con
+la misma `idempotencyKey` no da `IdempotencyConflictError`: devuelve un `embedUrl` nuevo
+las dos veces -- si el comprador abandonó y vuelve mañana (el link vive 30 minutos), lo
+que hace falta es otro link, no un error. De las dos sesiones sale UN solo comprobante
+igual, porque la idempotencia es de la emisión y esa clave sigue siendo la misma.
+
+**Que el iframe termine no es lo mismo que que haya CAE.** El evento de éxito del browser
+dice que el comprador terminó; el CAE lo pone AFIP después, y puede rechazar. Confirmá
+siempre desde tu backend antes de dar algo por facturado -- con `getComprobante(
+externalRef, idempotencyKey)` y `estado === 'issued'`, o esperando el webhook.
 
 ## Errores
 
@@ -153,9 +259,18 @@ catch-all sin tipar. Algunos tienen clase propia:
 | `RateLimitedError` | 429 | `.retryAfter` en segundos |
 | `PuntoVentaNoHabilitadoError` | 422 | Se arregla en el portal de AFIP |
 | `NotaExcedeComprobanteError` | 422 | La nota acredita más de lo disponible |
+| `ClienteEnPracticaError` | 422 | El Cliente todavía no confirmó que quiere facturar de verdad -- llamá `habilitarCliente` primero (no hace falta si facturás por el iframe) |
+| `ClienteSuspendidoError` | 422 | La emisión de este Cliente está cortada -- no se reactiva desde la API |
+| `LayoutNoAptoError` | 422 | El comprobante no entra en el `layout` pedido (`.param === "layout"`) -- pedilo en `'oficial'`/`'detallada'` |
 | `AfipRechazoError` | 422 | `.afip` trae los códigos de AFIP sin masticar |
 | `AfipUnavailableError` | 502 | Transitorio, reintentable con backoff |
 | `ServicioNoDisponibleError` | 503 | Este request puntual; **no significa que la emisión haya fallado** |
+
+`ClienteEnPracticaError` y `ClienteSuspendidoError` comparten 422 pero se arreglan
+distinto (uno lo destraba `habilitarCliente`, el otro no se destraba desde ninguna API),
+así que son dos excepciones y no una -- mismo criterio que separa `IdempotencyConflictError`
+de `BonificadoLimiteError`/`CsrYaExisteError`/`CredencialYaActivaError` a pesar de
+compartir el 409.
 
 Las fallas de **transporte** (timeout, DNS, TLS) no se envuelven: se propagan tal cual las
 tira Node. "El servidor respondió que no" y "ni pudimos preguntarle" son dos causas con

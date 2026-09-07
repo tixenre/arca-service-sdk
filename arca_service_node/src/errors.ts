@@ -159,11 +159,35 @@ export class RateLimitedError extends RequestError {
 export class PuntoVentaNoHabilitadoError extends ConfiguracionError {}
 
 /**
+ * 422 -- este Cliente todavía no confirmó que quiere emitir comprobantes fiscales reales
+ * (arranca así siempre: puede previsualizar, diagnosticar y consultar el padrón, pero no
+ * emitir, ni suelto ni en lote). Llamá `habilitarCliente(externalRef)` una vez para
+ * destrabarlo -- no hace falta si facturás por la sesión embebida: el iframe hace esta
+ * misma confirmación solo.
+ */
+export class ClienteEnPracticaError extends ConfiguracionError {}
+
+/**
+ * 422 -- la emisión de este Cliente está cortada. A diferencia de `ClienteEnPracticaError`,
+ * esto NO se destraba llamando `habilitarCliente` ni ningún otro método -- es un corte
+ * comercial que solo reactiva un operador de arca-service.
+ */
+export class ClienteSuspendidoError extends ConfiguracionError {}
+
+/**
  * 422, `param === "comprobante_asociado"` -- la nota de crédito/débito acredita más de lo
  * que queda disponible en la factura que referencia. Lo rechaza arca-service, AFIP nunca lo
  * vio.
  */
 export class NotaExcedeComprobanteError extends RequestError {}
+
+/**
+ * 422, `param === "layout"` -- el comprobante no entra en el `layout` pedido. Hoy pasa solo
+ * con `"simplificada"` (ver el README): más de 3 ítems, o alguno que no se resume a
+ * "descripción + importe" sin perder algo. `.message` dice cuál de los límites se pasó --
+ * pedí el mismo comprobante en `"oficial"`/`"detallada"`, que no tienen límite.
+ */
+export class LayoutNoAptoError extends RequestError {}
 
 /**
  * 422 -- AFIP rechazó el comprobante. NO reintentable sin cambiar algo. `.afip` trae los
@@ -227,6 +251,9 @@ const POR_CODE: Record<string, ArcaServiceErrorCtor> = {
   rate_limit: RateLimitedError as ArcaServiceErrorCtor,
   punto_venta_no_habilitado: PuntoVentaNoHabilitadoError,
   nota_excede_comprobante: NotaExcedeComprobanteError,
+  cliente_en_practica: ClienteEnPracticaError,
+  cliente_suspendido: ClienteSuspendidoError,
+  layout_no_apto: LayoutNoAptoError,
   afip_rechazo: AfipRechazoError,
   afip_sin_respuesta: AfipUnavailableError,
   afip_respuesta_ilegible: AfipUnavailableError,
