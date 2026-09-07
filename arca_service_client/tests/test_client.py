@@ -27,6 +27,8 @@ from arca_service_client import (
     AfipUnavailableError,
     ArcaServiceClient,
     BonificadoLimiteError,
+    ClienteEnPracticaError,
+    ClienteSuspendidoError,
     ComprobanteAsociado,
     ComprobanteInput,
     ConfiguracionError,
@@ -37,6 +39,7 @@ from arca_service_client import (
     IdempotencyConflictError,
     InternoError,
     ItemFactura,
+    LayoutNoAptoError,
     NotaExcedeComprobanteError,
     NotFoundError,
     PuntoVentaNoHabilitadoError,
@@ -328,6 +331,45 @@ def test_set_facturacion_manda_los_dos_campos(client, httpx_mock):
     result = client.set_facturacion("cliente-1", iibb="901-123456-7", nombre_comercial="La Esquina")
     assert result.iibb == "901-123456-7"
     assert result.nombre_comercial == "La Esquina"
+
+
+def test_habilitar_cliente(client, httpx_mock):
+    """El ejemplo exacto de MIGRACION.md, punto 5 -- confirmado (`habilitado_at` en
+    formato `Ecto.Enum`/`DateTime` de Elixir, `primer_cae_at` en `null` hasta que AFIP
+    autorice el primer comprobante real)."""
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/habilitar",
+        json={
+            "habilitacion": "habilitado",
+            "habilitado_at": "2026-09-05T14:23:11.482913Z",
+            "primer_cae_at": None,
+        },
+    )
+    result = client.habilitar_cliente("cliente-1")
+    assert result.habilitacion == "habilitado"
+    assert result.habilitado_at == datetime(2026, 9, 5, 14, 23, 11, 482913, tzinfo=timezone.utc)
+    assert result.primer_cae_at is None
+
+
+def test_habilitar_cliente_suspendido_levanta_cliente_suspendido_error(client, httpx_mock):
+    """No es lo mismo que `ClienteEnPracticaError` -- ver su docstring en exceptions.py:
+    un `Cliente` suspendido no se destraba llamando esto de nuevo, a diferencia de uno
+    todavía en práctica."""
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/habilitar",
+        status_code=422,
+        json=_error(
+            "configuracion",
+            "cliente_suspendido",
+            "La emisión de este cliente está suspendida y no se reactiva desde la API.",
+        ),
+    )
+    with pytest.raises(ClienteSuspendidoError) as exc_info:
+        client.habilitar_cliente("cliente-1")
+    assert isinstance(exc_info.value, ConfiguracionError)
+    assert not isinstance(exc_info.value, ClienteEnPracticaError)
 
 
 def test_set_facturacion_omite_el_campo_no_pasado(client, httpx_mock):
@@ -946,6 +988,28 @@ def test_get_comprobante_pdf_503_levanta_servicio_no_disponible_error(client, ht
     assert isinstance(exc_info.value, InternoError)
 
 
+def test_get_comprobante_html_layout_no_apto_levanta_layout_no_apto_error(client, httpx_mock):
+    """MIGRACION.md, punto 2: `simplificada` rechaza en vez de recortar -- `param` apunta
+    a `"layout"`, no a ningún campo del comprobante. Vale igual para los nueve métodos de
+    preview-render; este es representativo, el dispatch por `code` es el mismo para
+    todos (ver `_EXCEPCION_POR_CODE`)."""
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes/factura-1/comprobante.html?layout=simplificada",
+        status_code=422,
+        json=_error(
+            "request",
+            "layout_no_apto",
+            "Este comprobante tiene 5 ítems y 'simplificada' acepta hasta 3.",
+            param="layout",
+        ),
+    )
+    with pytest.raises(LayoutNoAptoError) as exc_info:
+        client.get_comprobante_html("cliente-1", "factura-1", layout="simplificada")
+    assert isinstance(exc_info.value, RequestError)
+    assert exc_info.value.param == "layout"
+
+
 # ---------------------------------------------------------------------------
 # Vista embebible (iframe)
 # ---------------------------------------------------------------------------
@@ -1181,6 +1245,25 @@ def test_punto_venta_no_habilitado_levanta_configuracion_error(client, httpx_moc
         client.emitir_comprobante("cliente-1", _comprobante())
     assert isinstance(exc_info.value, ConfiguracionError)
     assert exc_info.value.status_code == 422
+
+
+def test_cliente_en_practica_levanta_configuracion_error(client, httpx_mock):
+    """MIGRACION.md, punto 1: el Cliente todavía no llamó `habilitar_cliente` -- puede
+    previsualizar/diagnosticar/consultar padrón, pero no emitir de verdad."""
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes",
+        status_code=422,
+        json=_error(
+            "configuracion",
+            "cliente_en_practica",
+            "Este cliente todavía no confirmó que quiere emitir comprobantes fiscales reales.",
+        ),
+    )
+    with pytest.raises(ClienteEnPracticaError) as exc_info:
+        client.emitir_comprobante("cliente-1", _comprobante())
+    assert isinstance(exc_info.value, ConfiguracionError)
+    assert not isinstance(exc_info.value, ClienteSuspendidoError)
 
 
 def test_nota_excede_comprobante_levanta_request_error_con_param(client, httpx_mock):

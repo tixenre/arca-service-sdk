@@ -21,6 +21,8 @@ from arca_service_client import (
     AfipUnavailableError,
     AsyncArcaServiceClient,
     BonificadoLimiteError,
+    ClienteEnPracticaError,
+    ClienteSuspendidoError,
     ComprobanteAsociado,
     ComprobanteInput,
     ConfiguracionError,
@@ -31,6 +33,7 @@ from arca_service_client import (
     IdempotencyConflictError,
     InternoError,
     ItemFactura,
+    LayoutNoAptoError,
     NotaExcedeComprobanteError,
     NotFoundError,
     PuntoVentaNoHabilitadoError,
@@ -351,6 +354,39 @@ async def test_set_facturacion_iibb_nunca_configurado_viene_null(client, httpx_m
     result = await client.set_facturacion("cliente-1", nombre_comercial="La Esquina")
     assert result.iibb is None
     assert result.nombre_comercial == "La Esquina"
+
+
+async def test_habilitar_cliente(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/habilitar",
+        json={
+            "habilitacion": "habilitado",
+            "habilitado_at": "2026-09-05T14:23:11.482913Z",
+            "primer_cae_at": None,
+        },
+    )
+    result = await client.habilitar_cliente("cliente-1")
+    assert result.habilitacion == "habilitado"
+    assert result.habilitado_at == datetime(2026, 9, 5, 14, 23, 11, 482913, tzinfo=timezone.utc)
+    assert result.primer_cae_at is None
+
+
+async def test_habilitar_cliente_suspendido_levanta_cliente_suspendido_error(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/habilitar",
+        status_code=422,
+        json=_error(
+            "configuracion",
+            "cliente_suspendido",
+            "La emisión de este cliente está suspendida y no se reactiva desde la API.",
+        ),
+    )
+    with pytest.raises(ClienteSuspendidoError) as exc_info:
+        await client.habilitar_cliente("cliente-1")
+    assert isinstance(exc_info.value, ConfiguracionError)
+    assert not isinstance(exc_info.value, ClienteEnPracticaError)
 
 
 # ---------------------------------------------------------------------------
@@ -925,6 +961,24 @@ async def test_get_comprobante_pdf_503_levanta_servicio_no_disponible_error(clie
     assert isinstance(exc_info.value, InternoError)
 
 
+async def test_get_comprobante_html_layout_no_apto_levanta_layout_no_apto_error(client, httpx_mock):
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes/factura-1/comprobante.html?layout=simplificada",
+        status_code=422,
+        json=_error(
+            "request",
+            "layout_no_apto",
+            "Este comprobante tiene 5 ítems y 'simplificada' acepta hasta 3.",
+            param="layout",
+        ),
+    )
+    with pytest.raises(LayoutNoAptoError) as exc_info:
+        await client.get_comprobante_html("cliente-1", "factura-1", layout="simplificada")
+    assert isinstance(exc_info.value, RequestError)
+    assert exc_info.value.param == "layout"
+
+
 # ---------------------------------------------------------------------------
 # Vista embebible (iframe)
 # ---------------------------------------------------------------------------
@@ -1152,6 +1206,23 @@ async def test_punto_venta_no_habilitado_levanta_configuracion_error(client, htt
     with pytest.raises(PuntoVentaNoHabilitadoError) as exc_info:
         await client.emitir_comprobante("cliente-1", _comprobante())
     assert isinstance(exc_info.value, ConfiguracionError)
+
+
+async def test_cliente_en_practica_levanta_configuracion_error(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/comprobantes",
+        status_code=422,
+        json=_error(
+            "configuracion",
+            "cliente_en_practica",
+            "Este cliente todavía no confirmó que quiere emitir comprobantes fiscales reales.",
+        ),
+    )
+    with pytest.raises(ClienteEnPracticaError) as exc_info:
+        await client.emitir_comprobante("cliente-1", _comprobante())
+    assert isinstance(exc_info.value, ConfiguracionError)
+    assert not isinstance(exc_info.value, ClienteSuspendidoError)
 
 
 async def test_nota_excede_comprobante_levanta_request_error_con_param(client, httpx_mock):

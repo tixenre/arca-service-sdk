@@ -380,6 +380,36 @@ class FacturacionResult:
 
 
 @dataclass(frozen=True)
+class HabilitacionResult:
+    """Respuesta de `ArcaServiceClient.habilitar_cliente` — `habilitacion` viene siempre
+    en `"habilitado"` (el único otro valor posible, `"suspendido"`, levanta
+    `ClienteSuspendidoError` en vez de responder 200; `"practica"` nunca sale de acá,
+    es el estado ANTES de llamar este método).
+
+    Las dos fechas dicen cosas distintas, no las confundas:
+
+    * `habilitado_at` -- cuándo alguien dio este consentimiento. `None` para Clientes que
+      ya facturaban antes de que este campo existiera (no representa un consentimiento
+      nuevo, no una falta de dato).
+    * `primer_cae_at` -- cuándo AFIP autorizó el primer comprobante real de este Cliente.
+      `None` hasta que eso pase: consentir no lo mueve, y una primera factura que AFIP
+      rechaza tampoco. **Si lo que te importa es si el Cliente ya facturó de verdad, es
+      este campo el que hay que mirar, no `habilitado_at`.**"""
+
+    habilitacion: str
+    habilitado_at: datetime | None
+    primer_cae_at: datetime | None
+
+    @staticmethod
+    def _from_json(d: dict) -> HabilitacionResult:
+        return HabilitacionResult(
+            habilitacion=d["habilitacion"],
+            habilitado_at=_fecha_hora(d.get("habilitado_at")),
+            primer_cae_at=_fecha_hora(d.get("primer_cae_at")),
+        )
+
+
+@dataclass(frozen=True)
 class EmbedTokenResult:
     """Respuesta de `ArcaServiceClient.crear_embed_token` -- `embed_url` es un link
     PÚBLICO (nadie necesita mTLS ni tu API key para abrirlo) que vale hasta

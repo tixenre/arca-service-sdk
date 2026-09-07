@@ -1,8 +1,8 @@
 """arca_service_client.exceptions — un tipo por `type` del sobre de error de
 arca-service, más un puñado de subclases con nombre propio para los `code` que vale la
-pena distinguir sin obligar a mirar `.code` a mano (los conflictos de negocio que ya
-existían antes de este sobre, y los tres `code` nuevos que trae la migración). El sobre
-real:
+pena distinguir sin obligar a mirar `.code` a mano -- los conflictos de negocio que ya
+existían antes de este sobre, y los que se fueron sumando después (MIGRACION.md). El
+sobre real:
 
     {"error": {"type": "afip", "code": "afip_rechazo", "message": "...", "afip": [...]}}
 
@@ -167,11 +167,40 @@ class PuntoVentaNoHabilitadoError(ConfiguracionError):
     que esto llega sin haber tocado la red de AFIP para nada."""
 
 
+class ClienteEnPracticaError(ConfiguracionError):
+    """422 — este Cliente todavía no confirmó que quiere emitir comprobantes fiscales
+    reales (arranca así siempre: puede `preview_comprobante`, `diagnosticar_credencial` y
+    `consultar_padron`, pero no `emitir_comprobante`/`emitir_nota_credito`/
+    `emitir_nota_debito`, ni sueltos ni en lote). Llamá
+    `ArcaServiceClient.habilitar_cliente(external_ref)` una vez para destrabarlo -- no
+    hace falta si facturás a través de la sesión embebida (`crear_sesion_embebida_*`): el
+    iframe hace esta misma confirmación solo, como parte de la pantalla de confirmar."""
+
+
+class ClienteSuspendidoError(ConfiguracionError):
+    """422 — la emisión de este Cliente está cortada. A diferencia de
+    `ClienteEnPracticaError`, esto NO se destraba llamando `habilitar_cliente` ni ningún
+    otro método de este SDK -- es un corte comercial que solo reactiva un operador de
+    arca-service. Dos códigos y no uno para el mismo status porque se arreglan distinto,
+    que es lo único que importa para decidir si un error merece clase propia."""
+
+
 class NotaExcedeComprobanteError(RequestError):
     """422, `param == "comprobante_asociado"` — la nota de crédito/débito acredita más de
     lo que queda disponible en la factura que referencia. `.message` dice cuánto queda;
     mandá un importe que entre en eso. `request` y no `afip`: esto lo rechaza
     arca-service, AFIP nunca lo vio."""
+
+
+class LayoutNoAptoError(RequestError):
+    """422, `param == "layout"` — el comprobante no entra en el `layout` pedido. Hoy pasa
+    solo con `"simplificada"` (ver el README, sección de `layout`): más de 3 ítems, o
+    alguno que no se resume a "descripción + importe" sin perder algo (descripción de más
+    de 40 caracteres, `cantidad` != 1, con bonificación, con detalle, o con una unidad de
+    medida distinta de la default). `.message` dice cuál de los límites se pasó. Pedí el
+    mismo comprobante en `"oficial"`/`"detallada"`, que no tienen límite -- las dos
+    llegan a este mismo `code` en los métodos de render y en los de preview-render por
+    igual."""
 
 
 class AfipRechazoError(AfipError):

@@ -35,12 +35,15 @@ from .exceptions import (
     AfipUnavailableError,
     ArcaServiceError,
     BonificadoLimiteError,
+    ClienteEnPracticaError,
+    ClienteSuspendidoError,
     ConfiguracionError,
     CredencialYaActivaError,
     CredentialsRejectedError,
     CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
+    LayoutNoAptoError,
     NotaExcedeComprobanteError,
     NotFoundError,
     PuntoVentaNoHabilitadoError,
@@ -58,6 +61,7 @@ from .models import (
     EmisionResult,
     FacturacionResult,
     GenerarCsrResult,
+    HabilitacionResult,
     ListaComprobantesResult,
     LoteItemResult,
     OnboardingResult,
@@ -231,6 +235,30 @@ class ArcaServiceClient:
         resp = self._http.put(f"/clientes/{external_ref}/facturacion", json=payload)
         _raise_for_status(resp)
         return FacturacionResult._from_json(resp.json())
+
+    def habilitar_cliente(self, external_ref: str) -> HabilitacionResult:
+        """Confirma que este Cliente quiere emitir comprobantes fiscales reales -- sin
+        esto, `emitir_comprobante`/`emitir_nota_credito`/`emitir_nota_debito` (sueltos o
+        en lote) levantan `ClienteEnPracticaError` (422); `preview_comprobante`,
+        `diagnosticar_credencial` y `consultar_padron` andan igual sin llamar esto.
+
+        Sin body -- es una confirmación, no hay nada que elegir. Idempotente: llamarlo de
+        nuevo sobre un Cliente ya habilitado devuelve lo mismo sin volver a sellar nada,
+        así que un reintento de red nunca duplica un consentimiento. Los Clientes que ya
+        venían facturando antes de que este paso existiera ya están habilitados -- no
+        hace falta llamar esto para ellos.
+
+        **No hace falta si facturás a través de `crear_sesion_embebida_comprobante`/
+        `_nota_credito`/`_nota_debito`**: el iframe hace esta misma confirmación solo,
+        como parte de la pantalla de confirmar, sin que tu Plataforma llame nada. Llamalo
+        solo si tu integración factura directo con `emitir_comprobante` y compañía.
+
+        `ClienteSuspendidoError` (422) si la emisión de este Cliente está cortada -- a
+        diferencia del caso de arriba, eso no se destraba llamando esto ni ningún otro
+        método: es un corte comercial que solo reactiva un operador de arca-service."""
+        resp = self._http.post(f"/clientes/{external_ref}/habilitar")
+        _raise_for_status(resp)
+        return HabilitacionResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
     # Onboarding de credencial — dos caminos hacia una credencial AFIP para
@@ -713,6 +741,9 @@ _EXCEPCION_POR_CODE: dict[str, type[ArcaServiceError]] = {
     "rate_limit": RateLimitedError,
     "punto_venta_no_habilitado": PuntoVentaNoHabilitadoError,
     "nota_excede_comprobante": NotaExcedeComprobanteError,
+    "cliente_en_practica": ClienteEnPracticaError,
+    "cliente_suspendido": ClienteSuspendidoError,
+    "layout_no_apto": LayoutNoAptoError,
     "afip_rechazo": AfipRechazoError,
     "afip_sin_respuesta": AfipUnavailableError,
     "afip_respuesta_ilegible": AfipUnavailableError,

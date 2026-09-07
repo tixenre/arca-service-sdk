@@ -252,6 +252,40 @@ mismo dato. Los dos parámetros son opcionales — pasá solo el que quieras act
 `FacturacionResult` que vuelve trae en `None` cualquiera de los dos que nunca se haya
 configurado (no en `""`).
 
+## Antes de emitir de verdad: `habilitar_cliente`
+
+Un Cliente nuevo arranca en modo práctica: `preview_comprobante`, `diagnosticar_credencial`
+y `consultar_padron` andan igual, pero `emitir_comprobante`/`emitir_nota_credito`/
+`emitir_nota_debito` (sueltos o en lote) devuelven **422** (`ClienteEnPracticaError`) hasta
+que alguien confirme que quiere facturar de verdad:
+
+```python
+resultado = client.habilitar_cliente(onboarding.external_ref)
+resultado.habilitacion     # "habilitado"
+resultado.habilitado_at    # datetime -- cuándo se dio este consentimiento
+resultado.primer_cae_at    # None hasta que AFIP autorice el primer comprobante real
+```
+
+Sin body -- es una confirmación, no hay nada que elegir. Idempotente: llamarlo de nuevo
+sobre un Cliente ya habilitado devuelve lo mismo sin volver a sellar nada, así que un
+reintento de red nunca duplica un consentimiento. Los Clientes que ya venían facturando
+antes de que este paso existiera ya están habilitados — no hace falta llamar esto para
+ellos.
+
+**No hace falta si facturás a través de la sesión embebida** (ver más abajo): el iframe
+hace esta misma pregunta solo, como parte de la pantalla de confirmar, sin que tu
+Plataforma llame nada. Llamalo solo si tu integración factura directo con
+`emitir_comprobante` y compañía.
+
+`ClienteSuspendidoError` (422) si la emisión de este Cliente está cortada -- a diferencia
+del caso de arriba, eso no se destraba llamando esto ni ningún otro método: es un corte
+comercial que solo reactiva un operador de arca-service.
+
+**`habilitado_at` no es lo mismo que "ya facturó de verdad".** Consentir es un permiso, y
+un permiso ejercido contra una primera factura que AFIP rechaza no mueve `primer_cae_at`.
+Si lo que te importa es si el Cliente ya tiene un comprobante real emitido, es
+`primer_cae_at` el campo que hay que mirar, no `habilitado_at`.
+
 ## Emisión: siempre asincrónica
 
 `emitir_comprobante`/`emitir_nota_credito` responden `estado="pending"` de inmediato —
@@ -331,17 +365,29 @@ pdf = client.preview_nota_credito_pdf(onboarding.external_ref, nota_credito)
 ### `layout`: los tres formatos, y cuándo `simplificada` no sirve
 
 Los doce métodos que renderizan (`get_comprobante_html`/`_pdf`/`_imagen` y los nueve de
-preview) toman `layout`, con tres valores posibles:
+preview) toman `layout`, con tres valores posibles -- los tres incluyen lo que AFIP exige
+(CAE, QR fiscal, IVA discriminado, leyenda de Transparencia Fiscal); lo que cambia es
+cuánto desglose por ítem, no la validez fiscal:
 
-| `layout` | Para qué |
-|---|---|
-| `"oficial"` (default) | El comprobante completo, como se espera de un documento fiscal |
-| `"detallada"` | Igual, con más desglose por ítem |
-| `"simplificada"` | Una tarjeta chica, pensada para compartir (ej. por mensajería) |
+| | `"oficial"` (default) | `"detallada"` | `"simplificada"` |
+|---|---|---|---|
+| Formato | A4 | A4, identidad visual propia | Tarjeta 4:5 (1080×1350 px), para compartir |
+| Código de producto | sí | no | no |
+| Descripción + detalle | sí | sí | solo descripción |
+| Cantidad | sí | sí | no |
+| Unidad de medida | sí | no | no |
+| Precio unitario | sí | sí | no |
+| % de bonificación | sí | no | no |
+| Subtotal por ítem | sí | sí (ya con la bonificación aplicada) | sí |
 
-**`simplificada` no acepta cualquier comprobante, y lo rechaza en vez de recortarlo.** La
-tarjeta tiene lugar para poco, así que el servidor devuelve **422** (`RequestError`, con
-el motivo en `.message`) si el comprobante no entra. Tiene que cumplir todo esto:
+**`"detallada"` no es "`oficial` con más detalle" — es al revés: omite columnas** (código,
+unidad de medida, % de bonificación) y las resuelve adentro del subtotal. Si tu
+integración necesita ver esos datos discriminados, usá `"oficial"`.
+
+**`"simplificada"` no acepta cualquier comprobante, y lo rechaza en vez de recortarlo.** La
+tarjeta tiene lugar para poco: lo que no entra ahí no es una columna, es el ítem entero.
+El servidor devuelve **422** (`LayoutNoAptoError`, `.param == "layout"`, con cuántos ítems
+tiene y cuántos entran en `.message`) si el comprobante no cumple todo esto:
 
 - Hasta **3 ítems**.
 - Cada ítem, con `descripcion` de **hasta 40 caracteres**, `cantidad=1`,
@@ -351,6 +397,10 @@ Si no entra, pedí el mismo comprobante en `"oficial"` o `"detallada"`, que no t
 límite. Los otros dos layouts nunca dan este error, así que si no vas a usar
 `simplificada` no hace falta que manejes este caso. `crear_embed_token` y el iframe de
 facturación no exponen `layout`: siempre renderizan en `"oficial"`.
+
+**`_imagen` captura una sola página.** Un comprobante `"oficial"`/`"detallada"` con más
+ítems de los que entran en un A4 sale cortado por abajo en el PNG -- el `.pdf` del mismo
+comprobante no, porque ahí el renderizador pagina.
 
 ### Sesión embebida: facturar en un `<iframe>`
 
@@ -384,6 +434,14 @@ OPCIONAL -- según lo pasés o no, cambia qué hace el iframe:
 * **Con `receptor`** (`SesionEmbebidaInput(..., receptor=Receptor(cuit="..."))`) -- tu
   Plataforma ya tiene el dato fiscal en su base; el iframe pasa a ser solo la pantalla
   donde el comprador mira la factura que está por salir y confirma, sin cargar nada.
+
+**Si tenés el email del receptor, mandalo** (`Receptor(cuit=..., email="...")`): con eso
+el iframe deja de pedírselo a la persona -- le muestra a dónde va la copia del
+comprobante y le ofrece cambiarlo, en vez de un campo vacío pidiendo un dato que vos ya
+tenías. Si la persona escribe uno distinto ahí, ese gana para cualquier factura futura a
+ese mismo CUIT (de cualquier integración, no solo la tuya) -- el que vos mandaste vale
+solo para esta emisión. Sin `cuit` (receptor por DNI/consumidor final) se le avisa igual
+a dónde va la copia, pero no se le ofrece cambiarlo: no hay bajo qué guardar otro.
 
 El resto del payload (ítems, importes) queda fijo desde este llamado en los dos casos:
 la página embebida no lo puede cambiar, y un ítem mal armado da error acá y no media
@@ -498,11 +556,17 @@ para no obligarte a mirar `.code` a mano en los casos más comunes:
 | `BonificadoLimiteError` | `configuracion` | 409 | `set_bonificado` chocó contra el límite de seguridad de tu Plataforma — pedile a arca-service que lo suba, no es un error tuyo ni del Cliente |
 | `CsrYaExisteError` | `request` | 409 | `generar_csr` chocó con un CSR pendiente ya generado antes para este Cliente — pasá `regenerar=True` para descartarlo y arrancar de cero |
 | `CredencialYaActivaError` | `request` | 409 | `generar_csr` chocó con una credencial ya activa para este Cliente — pasá `regenerar=True` para reemplazarla |
+| `ClienteEnPracticaError` | `configuracion` | 422 | El Cliente todavía no confirmó que quiere emitir comprobantes fiscales reales — llamá `habilitar_cliente` primero (no hace falta si facturás por el iframe, ver "Sesión embebida") |
+| `ClienteSuspendidoError` | `configuracion` | 422 | La emisión de este Cliente está cortada — no se reactiva desde la API, es un tema comercial con arca-service |
+| `LayoutNoAptoError` | `request` | 422 | El comprobante no entra en el `layout` pedido (hoy, solo pasa con `"simplificada"`) — pedilo en `"oficial"`/`"detallada"`, o mirá `.message` para saber cuánto sobra (`.param == "layout"`) |
 
 `IdempotencyConflictError`, `BonificadoLimiteError`, `CsrYaExisteError` y
 `CredencialYaActivaError` comparten status code (409) pero NO significado — cuatro
 conflictos de negocio sin relación entre sí, cada uno con su propio `code` (y por lo
-tanto su propio subtipo) para que discriminar por `except` no los confunda.
+tanto su propio subtipo) para que discriminar por `except` no los confunda. Mismo
+criterio entre `ClienteEnPracticaError` y `ClienteSuspendidoError`: comparten 422 pero se
+arreglan distinto (uno lo destraba `habilitar_cliente`, el otro no se destraba desde
+ninguna API), así que son dos excepciones y no una.
 
 Fallas de TRANSPORTE (timeout, DNS, conexión rechazada) NO se envuelven — se dejan
 propagar como excepciones nativas de `httpx` (`httpx.TimeoutException`,

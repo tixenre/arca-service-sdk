@@ -43,12 +43,15 @@ from .exceptions import (
     AfipUnavailableError,
     ArcaServiceError,
     BonificadoLimiteError,
+    ClienteEnPracticaError,
+    ClienteSuspendidoError,
     ConfiguracionError,
     CredencialYaActivaError,
     CredentialsRejectedError,
     CsrYaExisteError,
     IdempotencyConflictError,
     InternoError,
+    LayoutNoAptoError,
     NotaExcedeComprobanteError,
     NotFoundError,
     PuntoVentaNoHabilitadoError,
@@ -78,6 +81,7 @@ from .models import (
     EmisionResult,
     FacturacionResult,
     GenerarCsrResult,
+    HabilitacionResult,
     Importes,
     Impuesto,
     ItemFactura,
@@ -99,7 +103,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.13"
+__version__ = "0.0.14"
 
 __all__ = [
     "__version__",
@@ -134,6 +138,7 @@ __all__ = [
     "EmisionResult",
     "FacturacionResult",
     "GenerarCsrResult",
+    "HabilitacionResult",
     "Impuesto",
     "ListaComprobantesResult",
     "LoteItemResult",
@@ -164,6 +169,8 @@ __all__ = [
     "AfipRechazoError",
     "AfipUnavailableError",
     "BonificadoLimiteError",
+    "ClienteEnPracticaError",
+    "ClienteSuspendidoError",
     "ConfiguracionError",
     "CredencialYaActivaError",
     "CredentialsInvalidError",
@@ -172,6 +179,7 @@ __all__ = [
     "CsrYaExisteError",
     "IdempotencyConflictError",
     "InternoError",
+    "LayoutNoAptoError",
     "NotaExcedeComprobanteError",
     "NotFoundError",
     "PuntoVentaNoHabilitadoError",

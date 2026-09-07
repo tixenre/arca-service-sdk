@@ -43,6 +43,7 @@ from .models import (
     EmisionResult,
     FacturacionResult,
     GenerarCsrResult,
+    HabilitacionResult,
     ListaComprobantesResult,
     LoteItemResult,
     OnboardingResult,
@@ -156,6 +157,13 @@ class AsyncArcaServiceClient:
         resp = await self._http.put(f"/clientes/{external_ref}/facturacion", json=payload)
         _raise_for_status(resp)
         return FacturacionResult._from_json(resp.json())
+
+    async def habilitar_cliente(self, external_ref: str) -> HabilitacionResult:
+        """Ver `ArcaServiceClient.habilitar_cliente` (client.py) para el detalle
+        completo, es la misma doc."""
+        resp = await self._http.post(f"/clientes/{external_ref}/habilitar")
+        _raise_for_status(resp)
+        return HabilitacionResult._from_json(resp.json())
 
     # ------------------------------------------------------------------
     # Onboarding de credencial
