@@ -366,23 +366,26 @@ pdf = client.preview_nota_credito_pdf(onboarding.external_ref, nota_credito)
 
 Los doce métodos que renderizan (`get_comprobante_html`/`_pdf`/`_imagen` y los nueve de
 preview) toman `layout`, con tres valores posibles -- los tres incluyen lo que AFIP exige
-(CAE, QR fiscal, IVA discriminado, leyenda de Transparencia Fiscal); lo que cambia es
-cuánto desglose por ítem, no la validez fiscal:
+(CAE, QR fiscal, IVA discriminado, leyenda de Transparencia Fiscal) y los mismos ocho datos
+por ítem; lo que cambia es cómo se ven, no cuánto dicen (excepto `"simplificada"`, que es
+otra cosa -- ver abajo):
 
 | | `"oficial"` (default) | `"detallada"` | `"simplificada"` |
 |---|---|---|---|
 | Formato | A4 | A4, identidad visual propia | Tarjeta 4:5 (1080×1350 px), para compartir |
-| Código de producto | sí | no | no |
+| Código de producto | columna | debajo de la descripción | no |
 | Descripción + detalle | sí | sí | solo descripción |
-| Cantidad | sí | sí | no |
-| Unidad de medida | sí | no | no |
-| Precio unitario | sí | sí | no |
-| % de bonificación | sí | no | no |
-| Subtotal por ítem | sí | sí (ya con la bonificación aplicada) | sí |
+| Cantidad | columna | columna | no |
+| Unidad de medida | columna | debajo de la cantidad | no |
+| Precio unitario | columna | columna | no |
+| % de bonificación | columna | columna | no |
+| Subtotal por ítem | columna | columna | sí |
 
-**`"detallada"` no es "`oficial` con más detalle" — es al revés: omite columnas** (código,
-unidad de medida, % de bonificación) y las resuelve adentro del subtotal. Si tu
-integración necesita ver esos datos discriminados, usá `"oficial"`.
+**Elegir entre `"oficial"` y `"detallada"` es elegir cómo se ve, no cuánto dice.** La
+`"detallada"` imprime los mismos ocho datos por ítem que la `"oficial"` -- el código y la
+unidad de medida no ocupan columna propia (cuelgan del dato al que pertenecen), así entra
+en cinco columnas en vez de siete, y un código o detalle vacío no deja una celda en blanco
+como sí hace la `"oficial"` (esa grilla es la del formulario de AFIP y no se mueve).
 
 **`"simplificada"` no acepta cualquier comprobante, y lo rechaza en vez de recortarlo.** La
 tarjeta tiene lugar para poco: lo que no entra ahí no es una columna, es el ítem entero.
