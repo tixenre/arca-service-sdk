@@ -528,6 +528,23 @@ export interface PreviewResult {
 }
 
 /**
+ * Qué comprobante acredita o debita una nota -- `EmisionResult.comprobanteAsociado`,
+ * `null` en una factura (la forma no cambia entre tipos, pero el bloque entero sólo
+ * aparece en una nota).
+ *
+ * `id` es el de la emisión NUESTRA que se referenció -- viene en `null` cuando la nota
+ * apunta a un comprobante que emitió otro sistema (`cae`/`importeTotal` en vez de una
+ * referencia propia, ver `ComprobanteAsociado`). `tipo`/`puntoVenta`/`numero` siempre
+ * están: son los que viajaron a AFIP.
+ */
+export interface ComprobanteAsociadoInfo {
+  id: string | null
+  tipo: number
+  puntoVenta: number
+  numero: number
+}
+
+/**
  * `estado`: `"pending"` recién creada, `"issued"` con `comprobante.numero`/`cae`/
  * `caeVencimiento`/`qrUrl` completos, o `"error"` con `errores` poblado. Mirá SIEMPRE
  * `estado`: `importes` se calcula desde que la emisión se crea, así que no hay ningún
@@ -535,6 +552,10 @@ export interface PreviewResult {
  *
  * `observaciones`: comentarios de AFIP sobre un comprobante que SÍ autorizó. No bloquean
  * nada ni cambian `estado`, pero vale la pena mostrarlos en vez de descartarlos.
+ *
+ * `comprobanteAsociado`: qué comprobante corrige esta nota -- `null` en una factura.
+ * Viaja igual en el webhook y en `listarComprobantes`, así que quien recibe el webhook
+ * de una nota sabe contra qué fue sin haber guardado nada de antes.
  */
 export interface EmisionResult {
   id: string
@@ -548,6 +569,7 @@ export interface EmisionResult {
   qrUrl: string
   errores: AfipErrorDetail[] | null
   observaciones: string[] | null
+  comprobanteAsociado: ComprobanteAsociadoInfo | null
   webhookDelivered: boolean | null
   webhookLastError: string
 }
@@ -781,8 +803,13 @@ export function previewFromJson(d: Json): PreviewResult {
   }
 }
 
+function comprobanteAsociadoInfoFromJson(d: Json): ComprobanteAsociadoInfo {
+  return { id: d['id'] ?? null, tipo: d['tipo'], puntoVenta: d['punto_venta'], numero: d['numero'] }
+}
+
 export function emisionFromJson(d: Json): EmisionResult {
   const errores = d['errores']
+  const asociado = d['comprobante_asociado']
   return {
     id: d['id'],
     idempotencyKey: d['idempotency_key'],
@@ -798,6 +825,7 @@ export function emisionFromJson(d: Json): EmisionResult {
         ? null
         : (errores as Json[]).map((e) => ({ codigo: e['codigo'], mensaje: e['mensaje'] })),
     observaciones: d['observaciones'] ?? null,
+    comprobanteAsociado: asociado ? comprobanteAsociadoInfoFromJson(asociado) : null,
     webhookDelivered: d['webhook_delivered'] ?? null,
     webhookLastError: d['webhook_last_error'] ?? '',
   }

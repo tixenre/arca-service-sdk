@@ -137,6 +137,12 @@ export async function POST(request: Request) {
 Verificar sobre el body reserializado (`JSON.stringify(await request.json())`) rompe la
 firma aunque el contenido "sea el mismo": cambia espaciado y orden de claves.
 
+En una nota, `comprobanteAsociado` dice qué comprobante corrige (`null` en una factura) --
+viaja igual en el webhook, así que quien lo recibe sabe contra qué salió la nota sin haber
+guardado nada de antes. Y al revés, `listarComprobantes(externalRef, { asociadoId })`
+responde "¿esta factura ya tiene una nota de crédito?" sin que tengas que guardar ese
+estado vos.
+
 ## No mandes `fecha` salvo que necesites una distinta a hoy
 
 Es opcional: si la omitís, la pone el servidor, con el día argentino. Armarla desde un

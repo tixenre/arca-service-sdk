@@ -327,6 +327,40 @@ describe('fromJson', () => {
     expect(e.observaciones).toBeNull()
   })
 
+  it('una factura no tiene comprobanteAsociado', () => {
+    const e = emisionFromJson(emisionJson)
+    expect(e.comprobanteAsociado).toBeNull()
+  })
+
+  it('una nota trae qué comprobante corrige', () => {
+    const e = emisionFromJson({
+      ...emisionJson,
+      comprobante_asociado: {
+        id: '0f9b6f2c-1e9a-4a5c-9d8f-2b7c1a4e5d60',
+        tipo: 1,
+        punto_venta: 3,
+        numero: 40,
+      },
+    })
+
+    expect(e.comprobanteAsociado).toEqual({
+      id: '0f9b6f2c-1e9a-4a5c-9d8f-2b7c1a4e5d60',
+      tipo: 1,
+      puntoVenta: 3,
+      numero: 40,
+    })
+  })
+
+  it('id es null cuando la nota referencia un comprobante de otro sistema', () => {
+    const e = emisionFromJson({
+      ...emisionJson,
+      comprobante_asociado: { id: null, tipo: 1, punto_venta: 3, numero: 40 },
+    })
+
+    expect(e.comprobanteAsociado?.id).toBeNull()
+    expect(e.comprobanteAsociado?.numero).toBe(40)
+  })
+
   it('facturacionFromJson deja en null el campo que nunca se configuró', () => {
     expect(facturacionFromJson({ iibb: '901-123456-7', nombre_comercial: null })).toEqual({
       iibb: '901-123456-7',

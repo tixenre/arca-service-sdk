@@ -1,6 +1,6 @@
 {
   "name": "@tixenre/arca-service-node",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Cliente HTTP oficial para arca-service (facturacion electronica ARCA/AFIP) desde Node/TypeScript -- mTLS + API key, server-side, sin dependencias de runtime.",
   "type": "module",
   "main": "./dist/index.js",

@@ -73,6 +73,7 @@ export type {
   CodigoAfip,
   ComponenteSociedad,
   ComprobanteAsociado,
+  ComprobanteAsociadoInfo,
   ComprobanteInfo,
   ComprobanteInput,
   CondicionIvaReceptor,

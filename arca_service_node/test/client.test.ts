@@ -276,6 +276,35 @@ describe('métodos', () => {
     c.close()
   })
 
+  it('listarComprobantes con asociadoId trae las notas de esa factura', async () => {
+    const c = cliente()
+    responder({
+      json: {
+        items: [
+          emisionMinima({
+            idempotency_key: 'nc-1',
+            comprobante: { tipo: 'nota_credito' },
+            comprobante_asociado: { id: 'factura-1', tipo: 1, punto_venta: 3, numero: 41 },
+          }),
+        ],
+        count: 1,
+      },
+    })
+
+    const r = await c.listarComprobantes('cliente-1', { asociadoId: 'factura-1' })
+
+    const url = new URL(`http://x${ultimo().url}`)
+    expect(url.searchParams.get('asociado_id')).toBe('factura-1')
+    expect(r.count).toBe(1)
+    expect(r.items[0]?.comprobanteAsociado).toEqual({
+      id: 'factura-1',
+      tipo: 1,
+      puntoVenta: 3,
+      numero: 41,
+    })
+    c.close()
+  })
+
   it('getComprobanteHtml manda layout=oficial por default y devuelve texto', async () => {
     const c = cliente()
     responder({ text: '<html>factura</html>', contentType: 'text/html' })

@@ -608,6 +608,12 @@ export class ArcaServiceClient {
    * receptor por DNI o consumidor final nunca aparece filtrando así). Sin resultados es una
    * lista vacía, nunca un 404.
    */
+  /**
+   * `asociadoId` responde "¿esta factura ya tiene una nota de crédito?" sin que tengas
+   * que guardar ese estado vos y mantenerlo sincronizado -- pasale el `id` de la factura
+   * y devuelve las notas emitidas contra ella. Combinable con el resto (`asociadoId` +
+   * `estado: 'issued'` deja afuera las que todavía no tienen CAE).
+   */
   async listarComprobantes(
     externalRef: string,
     filtros: {
@@ -616,6 +622,7 @@ export class ArcaServiceClient {
       creadoDesde?: FechaISO
       creadoHasta?: FechaISO
       receptorCuit?: string
+      asociadoId?: string
       limit?: number
       offset?: number
     } = {},
@@ -630,6 +637,7 @@ export class ArcaServiceClient {
           estado: filtros.estado,
           tipo: filtros.tipo,
           receptor_cuit: filtros.receptorCuit,
+          asociado_id: filtros.asociadoId,
           creado_desde: filtros.creadoDesde,
           creado_hasta: filtros.creadoHasta,
         },
