@@ -593,6 +593,34 @@ async def test_emitir_nota_credito_manda_al_endpoint_de_notas_credito(client, ht
     assert result.comprobante.tipo == "NOTA_CREDITO"
 
 
+async def test_emitir_nota_credito_por_total_manda_un_solo_campo(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-credito",
+        match_json={"comprobante_asociado": {"id": "factura-1"}},
+        status_code=202,
+        json=_emision_json(
+            idempotency_key="nc-total-factura-1", comprobante=_comprobante_json(tipo="NOTA_CREDITO")
+        ),
+    )
+    result = await client.emitir_nota_credito_por_total("cliente-1", "factura-1")
+    assert result.comprobante.tipo == "NOTA_CREDITO"
+
+
+async def test_emitir_nota_credito_por_total_con_idempotency_key_explicita(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{_API}/clientes/cliente-1/notas-credito",
+        match_json={"comprobante_asociado": {"id": "factura-1"}, "idempotency_key": "mia-42"},
+        status_code=202,
+        json=_emision_json(idempotency_key="mia-42"),
+    )
+    result = await client.emitir_nota_credito_por_total(
+        "cliente-1", "factura-1", idempotency_key="mia-42"
+    )
+    assert result.idempotency_key == "mia-42"
+
+
 async def test_preview_nota_debito(client, httpx_mock):
     httpx_mock.add_response(
         method="POST",

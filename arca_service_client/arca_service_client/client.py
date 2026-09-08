@@ -518,6 +518,31 @@ class ArcaServiceClient:
         _raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
 
+    def emitir_nota_credito_por_total(
+        self, external_ref: str, comprobante_id: str, *, idempotency_key: str | None = None
+    ) -> EmisionResult:
+        """Acredita un comprobante YA EMITIDO por TU Plataforma entero, sin construir un
+        `ComprobanteInput` -- `comprobante_id` es el `EmisionResult.id` que devolvió esa
+        emisión (no `idempotency_key`). Los ítems, el receptor, el concepto y las fechas de
+        servicio salen de esa emisión; no hace falta (ni sirve) mandarlos de nuevo.
+
+        Sin `idempotency_key`, el servidor deriva una del comprobante -- un botón de
+        "anular esta factura" apretado dos veces emite UNA sola nota, no dos. Pasala
+        explícita solo si necesitás una propia para tu propio idempotency handling.
+
+        Solo para comprobantes en pesos: uno en otra moneda pide el camino normal
+        (`emitir_nota_credito` con `ComprobanteInput` completo) -- la cotización de la nota
+        se resuelve el día que se emite, y contra una factura de otro día las dos puntas no
+        cancelan. Solo para nota de CRÉDITO -- no existe el equivalente para nota de
+        débito (acreditar un comprobante entero es una operación real; volver a debitarlo
+        no lo es)."""
+        payload: dict = {"comprobante_asociado": {"id": comprobante_id}}
+        if idempotency_key is not None:
+            payload["idempotency_key"] = idempotency_key
+        resp = self._http.post(f"/clientes/{external_ref}/notas-credito", json=payload)
+        _raise_for_status(resp)
+        return EmisionResult._from_json(resp.json())
+
     def emitir_nota_debito(self, external_ref: str, nota_debito: ComprobanteInput) -> EmisionResult:
         resp = self._http.post(
             f"/clientes/{external_ref}/notas-debito", json=nota_debito.to_payload()

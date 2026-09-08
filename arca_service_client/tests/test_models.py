@@ -222,6 +222,17 @@ def test_to_payload_comprobante_asociado_cae_e_importe_total_van_juntos():
     assert payload["comprobante_asociado"]["importe_total"] == "1210.00"
 
 
+def test_to_payload_comprobante_asociado_por_id_no_manda_el_trio():
+    """La forma corta -- `id` solo, sin `tipo`/`punto_venta`/`numero` -- para una nota
+    PARCIAL (con `items`) que referencia por `id` en vez del trío. La nota por el
+    TOTAL (sin `items`) no pasa por `ComprobanteInput`, ver `emitir_nota_credito_por_total`."""
+    comprobante = _comprobante_minimo(
+        comprobante_asociado=ComprobanteAsociado(id="3f9a1c7e-0000-4000-8000-000000000001")
+    )
+    payload = comprobante.to_payload()
+    assert payload["comprobante_asociado"] == {"id": "3f9a1c7e-0000-4000-8000-000000000001"}
+
+
 def test_preview_result_from_json():
     """`comprobante`/`importes` anidados -- valores verificados contra un preview real
     (ver `tests/test_contract.py`). Un preview no trae `moneda`/`cotizacion` en

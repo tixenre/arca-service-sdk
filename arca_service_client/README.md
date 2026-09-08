@@ -478,6 +478,42 @@ intento) — reintentar el MISMO request con la MISMA key devuelve la emisión y
 existente en vez de duplicarla. Si reintentás con la misma key pero datos DISTINTOS,
 `emitir_comprobante` levanta `IdempotencyConflictError` (409).
 
+## Anular una factura entera: `emitir_nota_credito_por_total`
+
+Para acreditar un comprobante COMPLETO (no tenés que decirle qué ítems: son todos)
+no hace falta reconstruir el `ComprobanteInput` — alcanza con el `id` que devolvió
+la emisión original:
+
+```python
+factura = client.emitir_comprobante(onboarding.external_ref, comprobante)
+# ... más tarde, algo salió mal y hay que anularla:
+nota = client.emitir_nota_credito_por_total(onboarding.external_ref, factura.id)
+```
+
+Los ítems, el receptor, el concepto y las fechas de servicio salen de la factura
+que referenciás — no se los pasás vos, y si lo intentás no tiene efecto: el
+servidor arma el cuerpo desde su propia fila, no desde lo que mandes. Sin
+`idempotency_key`, el servidor deriva una del comprobante, así que un botón de
+"anular esta factura" apretado dos veces emite UNA sola nota — pasala explícita
+solo si necesitás una propia para tu propio idempotency handling.
+
+Solo para comprobantes en **pesos** y solo para **nota de crédito** (no existe el
+equivalente para nota de débito — acreditar un comprobante entero es una
+operación real, volver a debitarlo no). Para cualquier otro caso —una nota
+PARCIAL, una nota de débito, o un comprobante en otra moneda— seguí usando
+`emitir_nota_credito`/`emitir_nota_debito` con un `ComprobanteInput` completo.
+
+`ComprobanteAsociado` también acepta este mismo `id` como forma corta de
+referenciar la factura en esos casos (`ComprobanteAsociado(id=factura.id)`, en vez
+de `tipo`/`punto_venta`/`numero`) — ahí sí es solo una referencia, no completa el
+resto del cuerpo.
+
+**Referenciar por `id` (o por `tipo`/`punto_venta`/`numero`) solo encuentra un
+comprobante que emitió TU PROPIA Plataforma.** Si necesitás acreditar uno que
+emitió otra Plataforma para el mismo Cliente, o uno que no emitió este servicio,
+ninguna de las dos formas sirve — mandá `cae`/`importe_total` en su lugar (ver la
+docstring de `ComprobanteAsociado`).
+
 ## Vista embebible (iframe): `crear_embed_token`
 
 Un link público, de vida corta, para mostrarle un comprobante a alguien sin que tu

@@ -403,6 +403,18 @@ class AsyncArcaServiceClient:
         _raise_for_status(resp)
         return EmisionResult._from_json(resp.json())
 
+    async def emitir_nota_credito_por_total(
+        self, external_ref: str, comprobante_id: str, *, idempotency_key: str | None = None
+    ) -> EmisionResult:
+        """Ver `ArcaServiceClient.emitir_nota_credito_por_total` (client.py) para el
+        detalle completo, es la misma doc."""
+        payload: dict = {"comprobante_asociado": {"id": comprobante_id}}
+        if idempotency_key is not None:
+            payload["idempotency_key"] = idempotency_key
+        resp = await self._http.post(f"/clientes/{external_ref}/notas-credito", json=payload)
+        _raise_for_status(resp)
+        return EmisionResult._from_json(resp.json())
+
     async def emitir_nota_debito(
         self, external_ref: str, nota_debito: ComprobanteInput
     ) -> EmisionResult:

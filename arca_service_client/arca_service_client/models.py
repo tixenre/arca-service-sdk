@@ -122,24 +122,43 @@ class ItemFactura:
 @dataclass
 class ComprobanteAsociado:
     """Referencia a la factura original — obligatoria en una nota de crédito/débito
-    (`ComprobanteInput.comprobante_asociado`). Con `tipo`/`punto_venta`/`numero`
-    alcanza si el comprobante original lo emitió este mismo servicio -- se busca
-    solo, sin pedir más datos.
+    (`ComprobanteInput.comprobante_asociado`). Dos formas de referenciar un
+    comprobante que emitió TU Plataforma -- van una o la otra, nunca las dos:
 
-    `cae`/`importe_total`: para asociar una nota a un comprobante que NO emitió
-    este servicio (de antes de migrar, o de otro proveedor) -- van los dos juntos
-    o ninguno, el servidor los exige así."""
+        ComprobanteAsociado(id="3f9a1c7e-...")                  # el id que devolvió la emisión original
+        ComprobanteAsociado(tipo=1, punto_venta=3, numero=41)   # tipo/punto_venta/numero
 
-    tipo: int
-    punto_venta: int
-    numero: int
+    Las dos se buscan solas, sin pedir más datos -- `id` es la forma corta (nada
+    que tipear) y es lo que hace posible
+    `ArcaServiceClient.emitir_nota_credito_por_total` (ver el README). Para una
+    nota PARCIAL (con `items`) cualquiera de las dos formas sirve igual, `id`
+    solo ahorra escribir la referencia.
+
+    Ninguna de las dos encuentra un comprobante que emitió OTRA Plataforma (mismo
+    Cliente) ni uno que no emitió este servicio (de antes de migrar, o de otro
+    proveedor) -- para esos casos mandá `cae`/`importe_total` en cambio (van los
+    dos juntos o ninguno, el servidor los exige así). Se constata igual contra
+    AFIP antes de emitir la nota."""
+
+    id: str | None = None
+    tipo: int | None = None
+    punto_venta: int | None = None
+    numero: int | None = None
     cuit: str | None = None
     fecha: date | None = None
     cae: str | None = None
     importe_total: Decimal | None = None
 
     def _to_dict(self) -> dict:
-        d: dict = {"tipo": int(self.tipo), "punto_venta": self.punto_venta, "numero": self.numero}
+        d: dict = {}
+        if self.id is not None:
+            d["id"] = self.id
+        if self.tipo is not None:
+            d["tipo"] = int(self.tipo)
+        if self.punto_venta is not None:
+            d["punto_venta"] = self.punto_venta
+        if self.numero is not None:
+            d["numero"] = self.numero
         if self.cuit is not None:
             d["cuit"] = self.cuit
         if self.fecha is not None:
