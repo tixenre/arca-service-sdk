@@ -831,6 +831,29 @@ class ReceptorInfo:
 
 
 @dataclass(frozen=True)
+class ComprobanteAsociadoInfo:
+    """Qué comprobante acredita o debita esta nota -- `EmisionResult.comprobante_asociado`,
+    `None` en una factura (la forma no cambia entre tipos, pero el bloque entero solo
+    aparece en una nota).
+
+    `id` es el de la emisión NUESTRA que se referenció -- viene en `None` cuando la nota
+    apunta a un comprobante que emitió otro sistema (`cae`/`importe_total` en vez de una
+    referencia propia, ver `ComprobanteAsociado`). `tipo`/`punto_venta`/`numero` siempre
+    están: son los que viajaron a AFIP."""
+
+    id: str | None
+    tipo: int
+    punto_venta: int
+    numero: int
+
+    @staticmethod
+    def _from_json(d: dict) -> ComprobanteAsociadoInfo:
+        return ComprobanteAsociadoInfo(
+            id=d.get("id"), tipo=d["tipo"], punto_venta=d["punto_venta"], numero=d["numero"]
+        )
+
+
+@dataclass(frozen=True)
 class PreviewResult:
     comprobante: ComprobanteInfo
     importes: Importes
@@ -855,7 +878,11 @@ class EmisionResult:
     `observaciones`: comentarios de AFIP sobre un comprobante que SÍ autorizó (ej. el
     documento del receptor no figura en el padrón, una fecha al límite) -- a diferencia
     de `errores`, no bloquean nada ni cambian `estado`; vale la pena mostrárselos a quien
-    emitió en vez de descartarlos."""
+    emitió en vez de descartarlos.
+
+    `comprobante_asociado`: qué comprobante corrige esta nota -- `None` en una factura.
+    Viaja igual en el webhook y en `listar_comprobantes`, así que quien recibe el webhook
+    de una nota sabe contra qué fue sin haber guardado nada de antes."""
 
     id: str
     idempotency_key: str
@@ -868,12 +895,14 @@ class EmisionResult:
     qr_url: str = ""
     errores: tuple[AfipErrorDetail, ...] | None = None
     observaciones: list[str] | None = None
+    comprobante_asociado: ComprobanteAsociadoInfo | None = None
     webhook_delivered: bool | None = None
     webhook_last_error: str = ""
 
     @staticmethod
     def _from_json(d: dict) -> EmisionResult:
         errores = d.get("errores")
+        asociado = d.get("comprobante_asociado")
         return EmisionResult(
             id=d["id"],
             idempotency_key=d["idempotency_key"],
@@ -890,6 +919,9 @@ class EmisionResult:
                 else None
             ),
             observaciones=d.get("observaciones"),
+            comprobante_asociado=(
+                ComprobanteAsociadoInfo._from_json(asociado) if asociado else None
+            ),
             webhook_delivered=d.get("webhook_delivered"),
             webhook_last_error=d.get("webhook_last_error", ""),
         )

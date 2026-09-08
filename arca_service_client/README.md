@@ -325,12 +325,18 @@ mostrárselos a quien emitió en vez de descartarlos.
 el código de rechazo de AFIP tal cual, sin masticar) — mismo objeto que
 `AfipRechazoError.afip` para el rechazo síncrono en un `preview_comprobante`.
 
+`comprobante_asociado` (`None` en una factura): en una nota, qué comprobante corrige --
+`ComprobanteAsociadoInfo(id, tipo, punto_venta, numero)`. Viaja igual en el webhook, así
+que quien lo recibe sabe contra qué salió la nota sin haber guardado nada de antes.
+`id` es el de la emisión NUESTRA referenciada (`None` si la nota apunta a un
+comprobante de otro sistema, vía `cae`/`importe_total`).
+
 ### Listar: `listar_comprobantes`
 
 `listar_comprobantes(external_ref)` trae todo lo que este Cliente tiene
 emitido/pendiente/en error, más nuevo primero — mismo shape de `EmisionResult` por
-ítem. Filtrable por `estado`/`tipo`/`creado_desde`/`creado_hasta`/`receptor_cuit`,
-paginado con `limit` (50 default, 200 máximo)/`offset`:
+ítem. Filtrable por `estado`/`tipo`/`creado_desde`/`creado_hasta`/`receptor_cuit`/
+`asociado_id`, paginado con `limit` (50 default, 200 máximo)/`offset`:
 
 ```python
 pagina = client.listar_comprobantes(
@@ -344,6 +350,11 @@ pagina.items[0].estado
 armar "tus facturas" del lado de tu propio producto -- alcanza también filas
 `pending`/`error`, no solo `issued`. Solo encuentra lo emitido con CUIT: un receptor
 por DNI o consumidor final nunca aparece filtrando así.
+
+`asociado_id` responde "¿esta factura ya tiene una nota de crédito?" sin que tengas que
+guardar ese estado vos y mantenerlo sincronizado -- pasale el `id` de la factura y
+`listar_comprobantes` te devuelve las notas emitidas contra ella. Combinable con el
+resto (`asociado_id=..., estado="issued"` deja afuera las que todavía no tienen CAE).
 
 `creado_desde`/`creado_hasta` filtran por cuándo se PIDIÓ la emisión, no por la fecha
 fiscal del comprobante. Sin resultados es una lista vacía, nunca un 404.

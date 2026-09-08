@@ -69,6 +69,7 @@ from .models import (
     CodigoAfip,
     ComponenteSociedad,
     ComprobanteAsociado,
+    ComprobanteAsociadoInfo,
     ComprobanteInfo,
     ComprobanteInput,
     CondicionIvaReceptor,
@@ -103,7 +104,7 @@ from .models import (
 )
 from .webhooks import verify_webhook_signature
 
-__version__ = "0.0.15"
+__version__ = "0.0.16"
 
 __all__ = [
     "__version__",
@@ -153,6 +154,7 @@ __all__ = [
     # response — sub-objetos de PreviewResult/EmisionResult (comprobante/importes/receptor)
     "CodigoAfip",
     "CondicionIvaReceptor",
+    "ComprobanteAsociadoInfo",
     "ComprobanteInfo",
     "Importes",
     "ReceptorInfo",

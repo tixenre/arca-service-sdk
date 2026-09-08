@@ -149,7 +149,36 @@ def _emision_out_issued_verificado() -> dict:
         "qr_url": "",
         "errores": None,
         "observaciones": None,
+        "comprobante_asociado": None,
     }
+
+
+def test_emision_out_shape_real_comprobante_asociado_null_en_una_factura():
+    """Una factura no referencia nada -- `comprobante_asociado` viaja igual (la forma no
+    cambia entre tipos), pero en `None`."""
+    result = EmisionResult._from_json(_emision_out_issued_verificado())
+    assert result.comprobante_asociado is None
+
+
+def test_emision_out_shape_real_comprobante_asociado_de_una_nota():
+    """Una nota trae el comprobante que corrige -- confirmado contra el serializador real
+    (`ComprobanteEmitido.comprobante_asociado/1`): `id` es el de la emisión NUESTRA
+    referenciada (viene en `None` si la nota apunta a un comprobante de otro sistema, vía
+    `cae`/`importe_total`), y `tipo`/`punto_venta`/`numero` son los tres números que
+    viajaron a AFIP en `CbtesAsoc` -- siempre presentes cuando el bloque no es `None`."""
+    data = _emision_out_issued_verificado()
+    data["comprobante_asociado"] = {
+        "id": "0f9b6f2c-1e9a-4a5c-9d8f-2b7c1a4e5d60",
+        "tipo": 1,
+        "punto_venta": 3,
+        "numero": 40,
+    }
+    result = EmisionResult._from_json(data)
+    assert result.comprobante_asociado is not None
+    assert result.comprobante_asociado.id == "0f9b6f2c-1e9a-4a5c-9d8f-2b7c1a4e5d60"
+    assert result.comprobante_asociado.tipo == 1
+    assert result.comprobante_asociado.punto_venta == 3
+    assert result.comprobante_asociado.numero == 40
 
 
 def test_emision_out_shape_real_comprobante_anidado():

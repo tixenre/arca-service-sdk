@@ -564,6 +564,7 @@ class ArcaServiceClient:
         creado_desde: date | None = None,
         creado_hasta: date | None = None,
         receptor_cuit: str | None = None,
+        asociado_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> ListaComprobantesResult:
@@ -573,7 +574,13 @@ class ArcaServiceClient:
         pelado, sin exigir dígito verificador -- solo encuentra lo emitido con CUIT, un
         receptor por DNI o consumidor final nunca aparece filtrando así).
         `creado_desde`/`creado_hasta` filtran por cuándo se PIDIÓ la emisión, no por la
-        fecha fiscal del comprobante. Sin resultados es una lista vacía, nunca un 404."""
+        fecha fiscal del comprobante. Sin resultados es una lista vacía, nunca un 404.
+
+        `asociado_id` es el `id` de una factura (u otro comprobante) tuyo -- devuelve las
+        notas emitidas contra ella. "¿Esta factura ya tiene una nota de crédito?" es este
+        filtro, en vez de guardar ese estado vos y mantenerlo sincronizado. Combinable con
+        el resto: `asociado_id=..., estado="issued"` deja afuera las que todavía no
+        tienen CAE."""
         params: dict = {"limit": limit, "offset": offset}
         if estado is not None:
             params["estado"] = estado
@@ -581,6 +588,8 @@ class ArcaServiceClient:
             params["tipo"] = tipo
         if receptor_cuit is not None:
             params["receptor_cuit"] = receptor_cuit
+        if asociado_id is not None:
+            params["asociado_id"] = asociado_id
         if creado_desde is not None:
             params["creado_desde"] = creado_desde.isoformat()
         if creado_hasta is not None:

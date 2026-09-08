@@ -162,6 +162,7 @@ def _emision_json(**overrides):
         "qr_url": "",
         "errores": None,
         "observaciones": None,
+        "comprobante_asociado": None,
         "webhook_delivered": None,
         "webhook_last_error": "",
     }
@@ -750,6 +751,34 @@ def test_listar_comprobantes_manda_los_filtros_como_query_params(client, httpx_m
     )
     assert result.items == ()
     assert result.count == 0
+
+
+def test_listar_comprobantes_asociado_id_trae_las_notas_de_esa_factura(client, httpx_mock):
+    """`asociado_id` responde "¿esta factura ya tiene una nota de crédito?" sin que el
+    caller tenga que guardar ese estado por su cuenta."""
+    httpx_mock.add_response(
+        method="GET",
+        url=f"{_API}/clientes/cliente-1/comprobantes?limit=50&offset=0&asociado_id=factura-1",
+        json={
+            "items": [
+                _emision_json(
+                    idempotency_key="nc-1",
+                    comprobante=_comprobante_json(tipo="NOTA_CREDITO"),
+                    comprobante_asociado={
+                        "id": "factura-1",
+                        "tipo": 1,
+                        "punto_venta": 3,
+                        "numero": 41,
+                    },
+                )
+            ],
+            "count": 1,
+        },
+    )
+    result = client.listar_comprobantes("cliente-1", asociado_id="factura-1")
+    assert result.count == 1
+    assert result.items[0].comprobante_asociado.id == "factura-1"
+    assert result.items[0].comprobante_asociado.numero == 41
 
 
 # ---------------------------------------------------------------------------

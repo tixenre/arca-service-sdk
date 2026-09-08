@@ -438,6 +438,7 @@ class AsyncArcaServiceClient:
         creado_desde: date | None = None,
         creado_hasta: date | None = None,
         receptor_cuit: str | None = None,
+        asociado_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> ListaComprobantesResult:
@@ -448,6 +449,8 @@ class AsyncArcaServiceClient:
             params["tipo"] = tipo
         if receptor_cuit is not None:
             params["receptor_cuit"] = receptor_cuit
+        if asociado_id is not None:
+            params["asociado_id"] = asociado_id
         if creado_desde is not None:
             params["creado_desde"] = creado_desde.isoformat()
         if creado_hasta is not None:
