@@ -181,6 +181,29 @@ entrada = ComprobanteInput(
       expect(payload).not.toHaveProperty(clave)
     }
   })
+
+  it('comprobanteAsociado por id manda solo eso, igual que Python', () => {
+    const ts: ComprobanteInput = {
+      idempotencyKey: 'nc-1',
+      concepto: 1,
+      receptor: { consumidorFinal: true },
+      comprobanteAsociado: { id: '3f9a1c7e-0000-4000-8000-000000000001' },
+    }
+
+    const py = payloadDePython(`
+entrada = ComprobanteInput(
+    idempotency_key="nc-1",
+    concepto=1,
+    receptor=Receptor(consumidor_final=True),
+    comprobante_asociado=ComprobanteAsociado(id="3f9a1c7e-0000-4000-8000-000000000001"),
+)
+`)
+
+    expect(comprobanteToPayload(ts)).toEqual(py)
+    expect(comprobanteToPayload(ts)['comprobante_asociado']).toEqual({
+      id: '3f9a1c7e-0000-4000-8000-000000000001',
+    })
+  })
 })
 
 describe('sesionEmbebidaToPayload', () => {

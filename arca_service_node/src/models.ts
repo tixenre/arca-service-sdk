@@ -78,15 +78,26 @@ export interface ItemFactura {
 }
 
 /**
- * Referencia a la factura original -- obligatoria en una nota de crédito/débito. Con
- * `tipo`/`puntoVenta`/`numero` alcanza si el comprobante original lo emitió este mismo
- * servicio. `cae`/`importeTotal` son para asociar una nota a un comprobante que NO emitió
- * este servicio: van los dos juntos o ninguno.
+ * Referencia a la factura original -- obligatoria en una nota de crédito/débito. Dos
+ * formas de referenciar un comprobante que emitió TU Plataforma, van una o la otra,
+ * nunca las dos:
+ *
+ *     { id: '3f9a1c7e-...' }                        // el id que devolvió la emisión original
+ *     { tipo: 1, puntoVenta: 3, numero: 41 }         // tipo/puntoVenta/numero
+ *
+ * `id` es la forma corta (nada que tipear) y es lo que hace posible
+ * `emitirNotaCreditoPorTotal`. Para una nota PARCIAL (con `items`) cualquiera de las dos
+ * formas sirve igual -- `id` solo ahorra escribir la referencia.
+ *
+ * Ninguna de las dos encuentra un comprobante que emitió OTRA Plataforma (mismo Cliente)
+ * ni uno que no emitió este servicio (de antes de migrar, o de otro proveedor) -- para
+ * esos casos mandá `cae`/`importeTotal` en cambio (van los dos juntos o ninguno).
  */
 export interface ComprobanteAsociado {
-  tipo: number
-  puntoVenta: number
-  numero: number
+  id?: string
+  tipo?: number
+  puntoVenta?: number
+  numero?: number
   cuit?: string
   fecha?: FechaISO
   cae?: string
@@ -191,11 +202,11 @@ function itemToPayload(i: ItemFactura): Record<string, unknown> {
 }
 
 function asociadoToPayload(a: ComprobanteAsociado): Record<string, unknown> {
-  const d: Record<string, unknown> = {
-    tipo: a.tipo,
-    punto_venta: a.puntoVenta,
-    numero: a.numero,
-  }
+  const d: Record<string, unknown> = {}
+  if (a.id !== undefined) d['id'] = a.id
+  if (a.tipo !== undefined) d['tipo'] = a.tipo
+  if (a.puntoVenta !== undefined) d['punto_venta'] = a.puntoVenta
+  if (a.numero !== undefined) d['numero'] = a.numero
   if (a.cuit !== undefined) d['cuit'] = a.cuit
   if (a.fecha !== undefined) d['fecha'] = a.fecha
   if (a.cae !== undefined) d['cae'] = a.cae

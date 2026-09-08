@@ -547,6 +547,37 @@ export class ArcaServiceClient {
     )
   }
 
+  /**
+   * Acredita un comprobante YA EMITIDO por TU Plataforma entero, sin construir un
+   * `ComprobanteInput` -- `comprobanteId` es el `EmisionResult.id` que devolvió esa
+   * emisión (no `idempotencyKey`). Los ítems, el receptor, el concepto y las fechas de
+   * servicio salen de esa emisión; no hace falta (ni sirve) mandarlos de nuevo.
+   *
+   * Sin `idempotencyKey`, el servidor deriva una del comprobante -- un botón de "anular
+   * esta factura" apretado dos veces emite UNA sola nota, no dos. Pasala explícita solo
+   * si necesitás una propia para tu propio idempotency handling.
+   *
+   * Solo para comprobantes en pesos: uno en otra moneda pide el camino normal
+   * (`emitirNotaCredito` con un `ComprobanteInput` completo) -- la cotización de la nota
+   * se resuelve el día que se emite, y contra una factura de otro día las dos puntas no
+   * cancelan. Solo para nota de CRÉDITO -- no existe el equivalente para nota de débito.
+   */
+  async emitirNotaCreditoPorTotal(
+    externalRef: string,
+    comprobanteId: string,
+    idempotencyKey?: string,
+  ): Promise<EmisionResult> {
+    const json: Record<string, unknown> = { comprobante_asociado: { id: comprobanteId } }
+    if (idempotencyKey !== undefined) json['idempotency_key'] = idempotencyKey
+    return emisionFromJson(
+      await this.#json({
+        method: 'POST',
+        path: `/clientes/${externalRef}/notas-credito`,
+        json,
+      }),
+    )
+  }
+
   async emitirNotaDebito(
     externalRef: string,
     notaDebito: ComprobanteInput,

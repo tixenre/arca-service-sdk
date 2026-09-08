@@ -317,6 +317,42 @@ describe('métodos', () => {
     c.close()
   })
 
+  const emisionMinima = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: 'nota-1',
+    idempotency_key: 'nc-total-factura-1',
+    estado: 'pending',
+    comprobante: { tipo: 'nota_credito' },
+    importes: { neto: '121.00', iva: '0', no_gravado: '0', exento: '0', tributos: '0', total: '121.00' },
+    receptor: {},
+    ...overrides,
+  })
+
+  it('emitirNotaCreditoPorTotal manda un solo campo', async () => {
+    const c = cliente()
+    responder({ json: emisionMinima() })
+
+    const r = await c.emitirNotaCreditoPorTotal('cliente-1', 'factura-1')
+
+    expect(ultimo().url).toBe('/api/v1/clientes/cliente-1/notas-credito')
+    expect(JSON.parse(ultimo().body)).toEqual({ comprobante_asociado: { id: 'factura-1' } })
+    expect(r.comprobante.tipo).toBe('nota_credito')
+    c.close()
+  })
+
+  it('emitirNotaCreditoPorTotal manda idempotencyKey solo si se pasa', async () => {
+    const c = cliente()
+    responder({ json: emisionMinima({ idempotency_key: 'mia-42' }) })
+
+    const r = await c.emitirNotaCreditoPorTotal('cliente-1', 'factura-1', 'mia-42')
+
+    expect(JSON.parse(ultimo().body)).toEqual({
+      comprobante_asociado: { id: 'factura-1' },
+      idempotency_key: 'mia-42',
+    })
+    expect(r.idempotencyKey).toBe('mia-42')
+    c.close()
+  })
+
   it('emitirLoteComprobantes envuelve los ítems bajo su propia clave', async () => {
     const c = cliente()
     responder({ json: [] }, { json: [] })

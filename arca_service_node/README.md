@@ -144,6 +144,36 @@ proceso en UTC (`new Date().toISOString().slice(0, 10)`) ya da "mañana" a parti
 hora argentina — y además cambia el payload, así que un reintento que cruce esa hora se
 lleva un `IdempotencyConflictError` con la misma `idempotencyKey`.
 
+## Anular una factura entera: `emitirNotaCreditoPorTotal`
+
+Para acreditar un comprobante COMPLETO no hace falta armar un `ComprobanteInput`
+-- alcanza con el `id` que devolvió la emisión original:
+
+```ts
+const factura = await client.emitirComprobante(externalRef, comprobante)
+// ... más tarde, algo salió mal y hay que anularla:
+const nota = await client.emitirNotaCreditoPorTotal(externalRef, factura.id)
+```
+
+Los ítems, el receptor, el concepto y las fechas de servicio salen de la
+factura que referenciás -- no se los pasás vos, y si lo intentás no tiene
+efecto: el servidor arma el cuerpo desde su propia fila. Sin
+`idempotencyKey`, el servidor deriva una del comprobante, así que un botón de
+"anular esta factura" apretado dos veces emite UNA sola nota -- pasala
+explícita solo si necesitás una propia para tu propio idempotency handling.
+
+Solo para comprobantes en **pesos** y solo para **nota de crédito** (no existe
+el equivalente para nota de débito). Para cualquier otro caso -- una nota
+PARCIAL, una nota de débito, o un comprobante en otra moneda -- seguí usando
+`emitirNotaCredito`/`emitirNotaDebito` con un `ComprobanteInput` completo;
+`comprobanteAsociado` también acepta este mismo `id` como forma corta de
+referenciar la factura ahí (`{ id: factura.id }`, en vez de
+`tipo`/`puntoVenta`/`numero`).
+
+**Referenciar por `id` (o por el trío) solo encuentra un comprobante que emitió
+TU PROPIA Plataforma.** Para uno que emitió otra Plataforma del mismo Cliente,
+o uno que no emitió este servicio, mandá `cae`/`importeTotal` en cambio.
+
 ## `layout`: los tres formatos, y cuándo `simplificada` no sirve
 
 Los doce métodos que renderizan (`getComprobanteHtml`/`Pdf`/`Imagen` y los nueve de
